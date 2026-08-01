@@ -1,0 +1,81 @@
+use std::ops::Index;
+
+use crate::{states::*,error::ErrorCode};
+
+use anchor_lang::prelude::*;
+use anchor_spl::{ token_interface::{Mint,TokenAccount,TokenInterface,transfer_checked,TransferChecked},associated_token::{get_associated_token_address_with_program_id}};
+
+#[derive(Accounts)]
+pub struct Harvest<'info> {
+
+    pub user: Signer<'info>,
+
+    pub staking_mint: InterfaceAccount<'info,Mint>,
+
+    #[account(
+        mut,
+        seeds = [Farm::STATIC_SEED.as_bytes(),staking_mint.key().as_ref()],
+        bump = farm.bump
+    )]
+    pub farm: Account<'info,Farm>,
+
+    #[account(
+        mut,
+        seeds = [UserLedger::STATIC_SEED.as_bytes(),farm.key().as_ref(),user.key().as_ref()],
+        bump = user_ledger.bump
+    )]
+    pub user_ledger:Account<'info,UserLedger>,
+
+    // REMAINING ACCOUNTS 
+
+    // reward_mint_i: InterfaceAccount<Mint>,
+    // reward_vault_i:InterfaceAccount<TokenAccount>
+    // user_reward_token_i: InterfaceAccount<TokenAccount>,
+
+    // i: 0 -> n - 1 where n = reward_streams_count
+}
+
+pub fn handle_harvest<'info>(ctx:Context<'info,Harvest<'info>>)-> Result<()> {
+
+    let farm = &mut ctx.accounts.farm;
+    farm.update_farm()?;
+    
+    let user_ledger = &mut ctx.accounts.user_ledger;
+    user_ledger.update_user_ledger(farm)?;
+
+    let farm_seeds:&[&[u8]] = &[Farm::STATIC_SEED.as_bytes().as_ref(),farm.staking_mint.as_ref(),&[farm.bump]];
+    let signer_seeds = [&farm_seeds[..]];
+    // Reward stakers.
+    for i in  0..farm.reward_streams_count {
+        let reward_mint:InterfaceAccount<Mint> = InterfaceAccount::try_from(ctx.remaining_accounts.index((i*3) as usize)).unwrap();
+        let reward_vault:InterfaceAccount<TokenAccount> = InterfaceAccount::try_from(ctx.remaining_accounts.index((i*3 + 1) as usize)).unwrap();
+        let user_reward_token:InterfaceAccount<TokenAccount> = InterfaceAccount::try_from(ctx.remaining_accounts.index((i*3 + 2) as usize)).unwrap();
+
+        // validate the user reward token.
+        require_keys_eq!(user_reward_token.mint,farm.reward_streams[i as usize].reward_mint,ErrorCode::MismatchingAccounts);
+        require_keys_eq!(user_reward_token.owner,ctx.accounts.user.key(),ErrorCode::MismatchingAccounts);
+
+        // validate reward vault is an ATA of reward mint owned by farm.
+        let reward_vault_address = get_associated_token_address_with_program_id(&farm.key(), &reward_mint.key(), &reward_mint.to_account_info().owner.key());
+        require_keys_eq!(reward_vault.key(),reward_vault_address);
+
+        // validate the reward mint.
+        require_keys_eq!(reward_mint.key(),farm.reward_streams[i as usize].reward_mint,ErrorCode::MismatchingAccounts);
+
+        let transfer_amount = user_ledger.reward_infos[i as usize].pending_rewards_x64.checked_shr(64).unwrap() as u64;
+        if transfer_amount > 0 {
+            let transfer_ctx = CpiContext::new(reward_mint.to_account_info().owner.key(), TransferChecked {
+                from:reward_vault.to_account_info(),
+                to:user_reward_token.to_account_info(),
+                mint: reward_mint.to_account_info(),
+                authority:farm.to_account_info()
+            }).with_signer(&signer_seeds);
+
+            transfer_checked(transfer_ctx,transfer_amount,reward_mint.decimals)?;
+        }
+
+        user_ledger.reward_infos[i as usize].pending_rewards_x64 = user_ledger.reward_infos[i as usize].pending_rewards_x64.checked_sub(transfer_amount.checked_shl(64).unwrap() as u128).unwrap();
+    }
+
+    Ok(())
+}
