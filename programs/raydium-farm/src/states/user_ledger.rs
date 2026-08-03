@@ -1,7 +1,5 @@
-use std::ops::Index;
 
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{TokenAccount};
 
 use crate::Farm;
 
@@ -22,9 +20,9 @@ pub struct RewardInfo {
 
 impl UserLedger {
     pub const LEN:usize = 8 + UserLedger::INIT_SPACE;
-    pub const STATIC_SEED:&str = "user_ledger";
+    pub const STATIC_SEED:&[u8] = b"user_ledger";
 
-    pub fn update_user_ledger(&mut self, farm:&Account<Farm>) -> Result<()>{
+    pub fn update(&mut self, farm:&Account<Farm>) -> Result<()>{
     for i in 0..farm.reward_streams_count {
         let new_rewards = farm.reward_streams[i as usize].acc_rewards_per_base_unit_x64.checked_mul(self.staked_amount.into()).unwrap().checked_sub(self.reward_infos[i as usize].rewards_debt_x64).unwrap();
 

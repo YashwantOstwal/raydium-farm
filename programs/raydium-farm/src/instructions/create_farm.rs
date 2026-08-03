@@ -30,7 +30,7 @@ pub struct CreateFarm<'info>{
         init,
         payer = creator,
         space = Farm::LEN,
-        seeds = [Farm::STATIC_SEED.as_bytes(),staking_mint.key().as_ref()],
+        seeds = [Farm::STATIC_SEED,staking_mint.key().as_ref()],
         bump,
     )]
     pub farm:Account<'info,Farm>,
@@ -39,7 +39,8 @@ pub struct CreateFarm<'info>{
     pub associated_token_program:Program<'info,AssociatedToken>,
 
     // REMAINING ACCOUNTS
-
+    // WE EXPECT THE CREATOR TO HAVE ALREADY CREATED REWARD VAULT (ASSOCIATED TOKEN ACCOUNTS OWNED BY THE FARM) FOR EACH REWARD MINT.
+    
     // pub reward_mint_i: InterfaceAccount<Mint>,
     // pub reward_vault_i: InterfaceAccount<TokenAccount>
     // pub creator_reward_token_i: InterfaceAccount<TokenAccount>,
@@ -87,18 +88,23 @@ pub fn handle_create_farm<'info>(ctx: Context<'info, CreateFarm<'info>>,reward_s
             // });
             
             // create(create_reward_vault_ctx)?;
-            let transfer_amount = (end_time.checked_sub(open_time).unwrap() as u128).checked_mul(emission_per_second_x64).unwrap().checked_shr(64).unwrap() as u64;
-            
-            require!(transfer_amount >= creator_reward_token.amount,ErrorCode::InsufficientBalance);
 
-            let fund_vault_ctx = CpiContext::new(ctx.accounts.staking_mint_program.key(),TransferChecked {
-                from:creator_reward_token.to_account_info(),
-                to:reward_vault.to_account_info(),
-                mint:reward_mint.to_account_info(),
-                authority:ctx.accounts.creator.to_account_info()
-            });
+            let total_reward_amount = (end_time.checked_sub(open_time).unwrap() as u128).checked_mul(emission_per_second_x64).unwrap().checked_shr(64).unwrap() as u64;
 
-            transfer_checked(fund_vault_ctx,transfer_amount,reward_mint.decimals)?;
+            // if the vault already has some deposit.
+            let transfer_amount = total_reward_amount.checked_sub(reward_vault.amount).unwrap();
+            if transfer_amount > 0 {
+                require!(transfer_amount <= creator_reward_token.amount,ErrorCode::InsufficientBalance);
+
+                let fund_vault_ctx = CpiContext::new(ctx.accounts.staking_mint_program.key(),TransferChecked {
+                    from:creator_reward_token.to_account_info(),
+                    to:reward_vault.to_account_info(),
+                    mint:reward_mint.to_account_info(),
+                    authority:ctx.accounts.creator.to_account_info()
+                });
+                transfer_checked(fund_vault_ctx,transfer_amount,reward_mint.decimals)?;
+            }
+
 
             farm.reward_streams[reward_streams_count as usize] = RewardStream {
                 reward_mint:reward_mint.key(),
@@ -114,7 +120,7 @@ pub fn handle_create_farm<'info>(ctx: Context<'info, CreateFarm<'info>>,reward_s
         }
     }
     farm.set_inner(Farm {
-        creator: ctx.accounts.creator.key(),
+        authority: ctx.accounts.creator.key(),
         staking_mint: ctx.accounts.staking_mint.key(),
         staking_mint_program:ctx.accounts.staking_mint_program.key(), // used to auto-resolve / validate the staking vault over other ixns.
         last_updated_time: clock.unix_timestamp,

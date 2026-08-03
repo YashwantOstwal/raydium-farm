@@ -4,7 +4,7 @@ use anchor_lang::prelude::*;
 #[account]
 #[derive(InitSpace)]
 pub struct Farm {
-    pub creator:Pubkey, // authority.
+    pub authority:Pubkey, 
     pub staking_mint:Pubkey,
     pub staking_mint_program:Pubkey,
     pub staked_amount: u64,
@@ -25,6 +25,7 @@ pub struct RewardStream {
     pub emission_per_second_x64: u128,
 }
 
+
 #[derive(AnchorSerialize,AnchorDeserialize,Copy,Clone,InitSpace,PartialEq,Eq)]
 pub enum RewardStreamStatus {
     Unused,
@@ -33,13 +34,12 @@ pub enum RewardStreamStatus {
 }
 impl Farm {
     pub const LEN:usize = 8 + Farm::INIT_SPACE; 
-    pub const STATIC_SEED:&str = "farm";
+    pub const STATIC_SEED:&[u8] = b"farm";
 
-    pub fn update_farm(&mut self)-> Result<()> {
+    pub fn update(&mut self)-> Result<()> {
         let block_timestamp = Clock::get()?.unix_timestamp;
         if block_timestamp > self.last_updated_time  {
             for i in 0..self.reward_streams_count {
-                // updating the status.
                 if self.reward_streams[i as usize].open_time < block_timestamp {
                     self.reward_streams[i as usize].status = RewardStreamStatus::Unused;
                 }else if self.reward_streams[i as usize].open_time >= block_timestamp && self.reward_streams[i as usize].end_time <= block_timestamp {
@@ -52,12 +52,13 @@ impl Farm {
                 }else {
                    self.reward_streams[i as usize].status = RewardStreamStatus::Ended;
                    if self.staked_amount > 0 {
-                       let duration = block_timestamp.checked_sub(self.reward_streams[i as usize].end_time.min(self.last_updated_time)).unwrap() as u128;
+                       let duration = self.reward_streams[i as usize].end_time.checked_sub(self.reward_streams[i as usize].end_time.min(self.last_updated_time)).unwrap() as u128;
                        let new_emission = duration.checked_mul(self.reward_streams[i as usize].emission_per_second_x64).unwrap();
                        self.reward_streams[i as usize].acc_rewards_per_base_unit_x64 = self.reward_streams[i as usize].acc_rewards_per_base_unit_x64.checked_add(new_emission.checked_div(self.staked_amount.into()).unwrap()).unwrap();
                    }
                 };
             }
+            self.last_updated_time = block_timestamp;
         }
 
         Ok(())

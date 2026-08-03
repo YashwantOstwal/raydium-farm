@@ -15,5 +15,26 @@ pub enum ErrorCode {
     MismatchingAccounts,
 
     #[msg("Custom error message")]
-    InvalidAmount
+    InvalidAmount,
+
+    #[msg("Custom error message")]
+    RewardStreamsLimitExceeded,
+
+    #[msg("Custom error message")]
+    ReferencedRewardStreamInvalid,
+
+    #[msg("Custom error message")]
+    RewardStreamAlreadyEnded,
+
+    #[msg("Custom error message")]
+    OpenTimeCannotBeModified,
+
+    #[msg("Custom error message")]
+    CannotShrinkEndTime,
+
+    #[msg("Custom error message")]
+    CannotLowerEmissionPerSecond,
+
+    #[msg("Custom error message")]
+    RewardStreamIsRunning
 }

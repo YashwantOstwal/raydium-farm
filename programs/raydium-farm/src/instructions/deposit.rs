@@ -17,7 +17,7 @@ pub struct Deposit<'info> {
 
     #[account(
         mut,
-        seeds = [Farm::STATIC_SEED.as_bytes(),staking_mint.key().as_ref()],
+        seeds = [Farm::STATIC_SEED,staking_mint.key().as_ref()],
         bump = farm.bump
     )]
     pub farm: Box<Account<'info,Farm>>,
@@ -44,7 +44,7 @@ pub struct Deposit<'info> {
         init_if_needed,
         payer = user,
         space = UserLedger::LEN,
-        seeds = [UserLedger::STATIC_SEED.as_bytes(),farm.key().as_ref(),user.key().as_ref()],
+        seeds = [UserLedger::STATIC_SEED,farm.key().as_ref(),user.key().as_ref()],
         bump
     )]
     pub user_ledger:Box<Account<'info,UserLedger>>,
@@ -64,15 +64,15 @@ pub fn handle_deposit<'info>(ctx:Context<'info,Deposit<'info>>,deposit_amount:u6
 
     require!(deposit_amount > 0,ErrorCode::InvalidAmount);
     let farm = &mut ctx.accounts.farm;
-    farm.update_farm()?;
+    farm.update()?;
     
     require!(ctx.accounts.user_staking_token.amount >= deposit_amount,ErrorCode::InsufficientBalance);
     
     let user_ledger = &mut ctx.accounts.user_ledger;
-    user_ledger.update_user_ledger(farm)?;
+    user_ledger.update(farm)?;
 
 
-    let farm_seeds:&[&[u8]] = &[Farm::STATIC_SEED.as_bytes().as_ref(),farm.staking_mint.as_ref(),&[farm.bump]];
+    let farm_seeds:&[&[u8]] = &[Farm::STATIC_SEED,farm.staking_mint.as_ref(),&[farm.bump]];
     let signer_seeds = [&farm_seeds[..]];
     // Reward stakers.
     for i in  0..farm.reward_streams_count {

@@ -17,7 +17,7 @@ pub struct Withdraw<'info> {
 
     #[account(
         mut,
-        seeds = [Farm::STATIC_SEED.as_bytes(),staking_mint.key().as_ref()],
+        seeds = [Farm::STATIC_SEED,staking_mint.key().as_ref()],
         bump = farm.bump
     )]
     pub farm: Box<Account<'info,Farm>>,
@@ -42,7 +42,7 @@ pub struct Withdraw<'info> {
 
     #[account(
         mut,
-        seeds = [UserLedger::STATIC_SEED.as_bytes(),farm.key().as_ref(),user.key().as_ref()],
+        seeds = [UserLedger::STATIC_SEED,farm.key().as_ref(),user.key().as_ref()],
         bump = user_ledger.bump
     )]
     pub user_ledger:Box<Account<'info,UserLedger>>,
@@ -62,11 +62,11 @@ pub fn handle_withdraw<'info>(ctx:Context<'info,Withdraw<'info>>,withdraw_amount
     require!(user_ledger.staked_amount >= withdraw_amount,ErrorCode::InsufficientBalance);
     
     let farm = &mut ctx.accounts.farm;
-    farm.update_farm()?;
+    farm.update()?;
     
-    user_ledger.update_user_ledger(farm)?;
+    user_ledger.update(farm)?;
 
-    let farm_seeds:&[&[u8]] = &[Farm::STATIC_SEED.as_bytes().as_ref(),farm.staking_mint.as_ref(),&[farm.bump]];
+    let farm_seeds:&[&[u8]] = &[Farm::STATIC_SEED,farm.staking_mint.as_ref(),&[farm.bump]];
     let signer_seeds = [&farm_seeds[..]];
     // Reward stakers.
     for i in  0..farm.reward_streams_count {

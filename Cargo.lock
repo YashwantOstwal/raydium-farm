@@ -2187,13 +2187,11 @@ version = "0.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
- "borsh",
  "litesvm",
  "litesvm-token",
- "sha2 0.10.9",
- "solana-program-pack",
  "solana-sdk",
  "spl-associated-token-account",
+ "spl-token",
 ]
 
 [[package]]
@@ -4231,6 +4229,34 @@ dependencies = [
  "solana-pubkey 3.0.0",
  "solana-zero-copy",
  "solana-zk-sdk",
+ "thiserror 2.0.19",
+]
+
+[[package]]
+name = "spl-token"
+version = "9.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "878b0183d51fcd8a53e1604f4c13321894cf53227e6773c529b0d03d499a8dfd"
+dependencies = [
+ "arrayref",
+ "bytemuck",
+ "num-derive",
+ "num-traits",
+ "num_enum",
+ "solana-account-info",
+ "solana-cpi",
+ "solana-instruction",
+ "solana-msg",
+ "solana-program-entrypoint",
+ "solana-program-error",
+ "solana-program-memory",
+ "solana-program-option",
+ "solana-program-pack",
+ "solana-pubkey 3.0.0",
+ "solana-rent 3.1.0",
+ "solana-sdk-ids",
+ "solana-sysvar",
+ "spl-token-interface",
  "thiserror 2.0.19",
 ]
 
