@@ -3,32 +3,27 @@ use std::ops::Index;
 use crate::{states::*,error::ErrorCode};
 
 use anchor_lang::prelude::*;
-use anchor_spl::{ token_interface::{Mint,TokenAccount,TokenInterface,transfer_checked,TransferChecked},associated_token::{get_associated_token_address_with_program_id}};
+use anchor_spl::{ token::{Token},token_2022::{Token2022},token_interface::{Mint,TokenAccount,TokenInterface,transfer_checked,TransferChecked},associated_token::{get_associated_token_address_with_program_id}};
 
 #[derive(Accounts)]
 pub struct Withdraw<'info> {
-    #[account(mut)]
     pub user: Signer<'info>,
 
-    #[account(
-        mint::token_program = staking_mint_program,
-    )]
     pub staking_mint: Box<InterfaceAccount<'info,Mint>>,
 
     #[account(
         mut,
+        has_one = staking_mint,
         seeds = [Farm::STATIC_SEED,staking_mint.key().as_ref()],
         bump = farm.bump
     )]
     pub farm: Box<Account<'info,Farm>>,
 
-    pub staking_mint_program:Interface<'info,TokenInterface>,
-
     #[account(
         mut,
         token::mint = staking_mint,
         token::authority = user,
-        token::token_program = staking_mint_program,
+        token::token_program = staking_mint.to_account_info().owner,
     )]
     pub user_staking_token: Box<InterfaceAccount<'info,TokenAccount>>,
 
@@ -36,16 +31,20 @@ pub struct Withdraw<'info> {
         mut,
         associated_token::mint = staking_mint,
         associated_token::authority = farm,
-        associated_token::token_program = staking_mint_program,
+        associated_token::token_program = staking_mint.to_account_info().owner,
     )]
     pub staking_token_vault: Box<InterfaceAccount<'info,TokenAccount>>,
 
     #[account(
         mut,
+        has_one = user,
         seeds = [UserLedger::STATIC_SEED,farm.key().as_ref(),user.key().as_ref()],
         bump = user_ledger.bump
     )]
     pub user_ledger:Box<Account<'info,UserLedger>>,
+
+    pub token_program:Program<'info,Token>,
+    pub token_2022_program:Program<'info,Token2022>,
 
     // REMAINING ACCOUNTS 
 
@@ -101,7 +100,7 @@ pub fn handle_withdraw<'info>(ctx:Context<'info,Withdraw<'info>>,withdraw_amount
     }
 
     // Withdraw
-    let transfer_ctx = CpiContext::new(ctx.accounts.staking_mint_program.key(), TransferChecked {
+    let transfer_ctx = CpiContext::new(ctx.accounts.staking_mint.to_account_info().owner.key(), TransferChecked {
         from:ctx.accounts.staking_token_vault.to_account_info(),
         to:ctx.accounts.user_staking_token.to_account_info(),
         mint:ctx.accounts.staking_mint.to_account_info(),

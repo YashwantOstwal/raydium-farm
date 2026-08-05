@@ -110,7 +110,6 @@ pub fn test_raydium_farm() {
 
     let (alice_ledger_pda,alice_ledger_bump) = derive_user_ledger_pda(&farm_pda,&alice.pubkey());
     let alice_ledger = get_user_ledger(&svm,&alice_ledger_pda);
-    println!("{:#?} {}", alice_ledger, alice.pubkey());
 
     assert_eq!(alice_ledger.user,alice.pubkey());
     assert_eq!(alice_ledger.staked_amount,100);
@@ -126,13 +125,14 @@ pub fn test_raydium_farm() {
     let clock = svm.get_sysvar::<Clock>();
     assert_eq!(clock.unix_timestamp,1);
 
+    let alice_ledger_before_harvest_0 = get_user_ledger(&svm,&alice_ledger_pda);
+
     harvest(&mut svm,HarvestIxn {
         staker:&alice,
         staking_mint:&staking_mint,
         reward_tokens:&alice_reward_tokens
     }).unwrap();
 
-    
-    let alice_ledger_1 = get_user_ledger(&svm,&alice_ledger_pda);
-    println!("{:#?} {:#?} {:#?}",alice_ledger_1,alice_ledger,get_farm(&svm,&farm_pda));
+    let alice_ledger_after_harvest_0 = get_user_ledger(&svm,&alice_ledger_pda);
+
 }

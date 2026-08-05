@@ -11,17 +11,13 @@ pub struct CreateFarm<'info>{
     #[account(mut)]
     pub creator: Signer<'info>,
 
-    #[account(
-        mint::token_program = staking_mint_program
-    )]
     pub staking_mint:InterfaceAccount<'info,Mint>,
-
 
     #[account(
         mut,
         associated_token::mint = staking_mint,
         associated_token::authority = farm,
-        associated_token::token_program = staking_mint_program
+        associated_token::token_program = staking_mint.to_account_info().owner
     )]
     pub staking_token_vault:InterfaceAccount<'info,TokenAccount>,
     
@@ -34,9 +30,12 @@ pub struct CreateFarm<'info>{
     )]
     pub farm:Account<'info,Farm>,
 
-    pub staking_mint_program:Interface<'info,TokenInterface>,
-    
     pub system_program:Program<'info,System>,
+
+    // Right token program is used by the appropriate CPI calls.
+    pub token_program:Program<'info,Token>,
+    pub token_2022_program:Program<'info,Token2022>,
+
     pub associated_token_program:Program<'info,AssociatedToken>,
 
     // REMAINING ACCOUNTS
@@ -97,7 +96,7 @@ pub fn handle_create_farm<'info>(ctx: Context<'info, CreateFarm<'info>>,reward_s
             if transfer_amount > 0 {
                 require!(transfer_amount <= creator_reward_token.amount,ErrorCode::InsufficientBalance);
 
-                let fund_vault_ctx = CpiContext::new(ctx.accounts.staking_mint_program.key(),TransferChecked {
+                let fund_vault_ctx = CpiContext::new(reward_mint.to_account_info().owner.key(),TransferChecked {
                     from:creator_reward_token.to_account_info(),
                     to:reward_vault.to_account_info(),
                     mint:reward_mint.to_account_info(),
@@ -106,7 +105,6 @@ pub fn handle_create_farm<'info>(ctx: Context<'info, CreateFarm<'info>>,reward_s
                 transfer_checked(fund_vault_ctx,transfer_amount,reward_mint.decimals)?;
             }
 
-            ;
             farm.reward_streams[reward_streams_count as usize] = RewardStream {
                 reward_mint:reward_mint.key(),
                 reward_mint_program:reward_mint.to_account_info().owner.key(),
@@ -124,7 +122,7 @@ pub fn handle_create_farm<'info>(ctx: Context<'info, CreateFarm<'info>>,reward_s
     farm.set_inner(Farm {
         authority: ctx.accounts.creator.key(),
         staking_mint: ctx.accounts.staking_mint.key(),
-        staking_mint_program: ctx.accounts.staking_mint_program.key(),
+        staking_mint_program: ctx.accounts.staking_mint.to_account_info().owner.key(),
         last_updated_time: block_timestamp,
         reward_streams_count,
         reward_streams: farm.reward_streams,

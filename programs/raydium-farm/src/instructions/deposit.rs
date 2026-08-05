@@ -3,20 +3,18 @@ use std::ops::Index;
 use crate::{states::*,error::ErrorCode};
 
 use anchor_lang::prelude::*;
-use anchor_spl::{ token_interface::{Mint,TokenAccount,TokenInterface,transfer_checked,TransferChecked},associated_token::{get_associated_token_address_with_program_id}};
+use anchor_spl::{ token_interface::{Mint,TokenAccount,TokenInterface,transfer_checked,TransferChecked},associated_token::{get_associated_token_address_with_program_id},token::{Token},token_2022::{Token2022}};
 
 #[derive(Accounts)]
 pub struct Deposit<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
 
-    #[account(
-        mint::token_program = staking_mint_program,
-    )]
     pub staking_mint: Box<InterfaceAccount<'info,Mint>>,
 
     #[account(
         mut,
+        has_one = staking_mint,
         seeds = [Farm::STATIC_SEED,staking_mint.key().as_ref()],
         bump = farm.bump
     )]
@@ -26,7 +24,7 @@ pub struct Deposit<'info> {
         mut,
         token::mint = staking_mint,
         token::authority = user,
-        token::token_program = staking_mint_program,
+        token::token_program = staking_mint.to_account_info().owner,
     )]
     pub user_staking_token: Box<InterfaceAccount<'info,TokenAccount>>,
 
@@ -34,7 +32,7 @@ pub struct Deposit<'info> {
         mut,
         associated_token::mint = staking_mint,
         associated_token::authority = farm,
-        associated_token::token_program = staking_mint_program,
+        associated_token::token_program = staking_mint.to_account_info().owner,
     )]
     pub staking_token_vault: Box<InterfaceAccount<'info,TokenAccount>>,
 
@@ -47,10 +45,12 @@ pub struct Deposit<'info> {
     )]
     pub user_ledger:Box<Account<'info,UserLedger>>,
 
-    pub staking_mint_program:Interface<'info,TokenInterface>,
-
+    
     pub system_program:Program<'info,System>,
-
+    
+    pub token_program:Program<'info,Token>,
+    pub token_2022_program:Program<'info,Token2022>,
+    
     // REMAINING ACCOUNTS 
 
     // reward_mint_i: InterfaceAccount<Mint>,
@@ -106,7 +106,7 @@ pub fn handle_deposit<'info>(ctx:Context<'info,Deposit<'info>>,deposit_amount:u6
     }
 
     // Deposit
-    let transfer_ctx = CpiContext::new(ctx.accounts.staking_mint_program.key(), TransferChecked {
+    let transfer_ctx = CpiContext::new(ctx.accounts.staking_mint.to_account_info().owner.key(), TransferChecked {
         from:ctx.accounts.user_staking_token.to_account_info(),
         to:ctx.accounts.staking_token_vault.to_account_info(),
         mint:ctx.accounts.staking_mint.to_account_info(),

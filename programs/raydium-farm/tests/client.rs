@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-use anchor_spl::{associated_token::{self, get_associated_token_address_with_program_id}};
+use anchor_spl::{associated_token::{self, get_associated_token_address_with_program_id}, token_2022,token};
 
 use litesvm::{LiteSVM,types::{TransactionMetadata,FailedTransactionMetadata}};
 use litesvm_token::{
@@ -51,8 +51,9 @@ pub fn create_farm(svm: &mut LiteSVM,CreateFarmIxn {creator,staking_mint,staking
             AccountMeta::new_readonly(*staking_mint,false),
             AccountMeta::new(staking_token_vault,false),
             AccountMeta::new(farm_pda,false),
-            AccountMeta::new_readonly(*staking_mint_program,false),
             AccountMeta::new_readonly(system_program::ID,false),
+            AccountMeta::new_readonly(token::ID,false),
+            AccountMeta::new_readonly(token_2022::ID,false),
             AccountMeta::new_readonly(associated_token::ID,false),
         ];
 
@@ -164,12 +165,12 @@ pub fn stake(svm:&mut LiteSVM, StakeIxn {
         AccountMeta::new(*staker_staking_token,false),
         AccountMeta::new(staking_token_vault,false),
         AccountMeta::new(user_ledger,false),
-        AccountMeta::new_readonly(*staking_mint_program,false),
         AccountMeta::new_readonly(system_program::ID,false),
+        AccountMeta::new_readonly(token::ID,false),
+        AccountMeta::new_readonly(token_2022::ID,false),
     ];
 
     let farm = svm.get_account(&farm_pda).unwrap();
-    println!("{:#?}",farm);
     let farm_data:raydium_farm::Farm = Farm::try_deserialize(&mut farm.data.as_slice()).unwrap();
     assert_eq!(reward_tokens.len(),farm_data.reward_streams_count as usize);
 
@@ -221,7 +222,7 @@ pub fn harvest(svm:&mut LiteSVM,HarvestIxn {
     harvest_ixn_discriminator.copy_from_slice(&hash[..8]);
 
     let farm_pda = derive_farm_pda(&staking_mint);
-    let (user_ledger,_) = derive_user_ledger_pda(&farm_pda,&staker.pubkey());
+    let (user_ledger_pda,_) = derive_user_ledger_pda(&farm_pda,&staker.pubkey());
 
 
     let harvest_ixn_data = harvest_ixn_discriminator.to_vec();
@@ -229,7 +230,10 @@ pub fn harvest(svm:&mut LiteSVM,HarvestIxn {
         AccountMeta::new_readonly(staker.pubkey(),false),
         AccountMeta::new_readonly(*staking_mint, false),
         AccountMeta::new(farm_pda,false),
-        AccountMeta::new(user_ledger,false),
+        AccountMeta::new(user_ledger_pda,false),
+        AccountMeta::new_readonly(token::ID,false),
+        AccountMeta::new_readonly(token_2022::ID,false),
+
     ];
 
    let farm_data = get_farm(svm,&farm_pda);

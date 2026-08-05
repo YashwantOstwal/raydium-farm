@@ -40,9 +40,9 @@ impl Farm {
 
     pub fn update(&mut self)-> Result<()> {
         let block_timestamp = Clock::get()?.unix_timestamp;
-        if block_timestamp > self.last_updated_time  {
+        if self.last_updated_time < block_timestamp  {
             for i in 0..self.reward_streams_count {
-                if self.reward_streams[i as usize].open_time < block_timestamp {
+                if block_timestamp <  self.reward_streams[i as usize].open_time {
                     self.reward_streams[i as usize].status = RewardStreamStatus::Unused;
                 }else if self.reward_streams[i as usize].open_time <= block_timestamp &&  block_timestamp <= self.reward_streams[i as usize].end_time  {
                    self.reward_streams[i as usize].status = RewardStreamStatus::Running;

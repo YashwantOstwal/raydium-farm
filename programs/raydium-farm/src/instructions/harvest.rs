@@ -3,17 +3,19 @@ use std::ops::Index;
 use crate::{states::*,error::ErrorCode};
 
 use anchor_lang::prelude::*;
-use anchor_spl::{ token_interface::{Mint,TokenAccount,TokenInterface,transfer_checked,TransferChecked},associated_token::{get_associated_token_address_with_program_id}};
+use anchor_spl::{ token_interface::{Mint,TokenAccount,Token2022,TokenInterface,transfer_checked,TransferChecked,},token::{Token},associated_token::{get_associated_token_address_with_program_id}};
 
 #[derive(Accounts)]
 pub struct Harvest<'info> {
 
-    pub user: SystemAccount<'info>,
+    /// CHECK: Owner of the below UserLedger account, harvest is permissionless ixn, Could be invoked by the farm authority to harvest on behalf of the stakers before withdrawing the reward funds after that particular reward stream has ended.
+    pub user: UncheckedAccount<'info>,
 
     pub staking_mint: InterfaceAccount<'info,Mint>,
 
     #[account(
         mut,
+        has_one = staking_mint,
         seeds = [Farm::STATIC_SEED,staking_mint.key().as_ref()],
         bump = farm.bump
     )]
@@ -27,6 +29,8 @@ pub struct Harvest<'info> {
     )]
     pub user_ledger:Account<'info,UserLedger>,
 
+    pub token_program:Program<'info,Token>,
+    pub token_2022_program:Program<'info,Token2022>
     // REMAINING ACCOUNTS 
 
     // reward_mint_i: InterfaceAccount<Mint>,
