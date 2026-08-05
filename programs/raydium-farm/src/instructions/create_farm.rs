@@ -16,7 +16,6 @@ pub struct CreateFarm<'info>{
     )]
     pub staking_mint:InterfaceAccount<'info,Mint>,
 
-    pub staking_mint_program:Interface<'info,TokenInterface>,
 
     #[account(
         mut,
@@ -35,6 +34,8 @@ pub struct CreateFarm<'info>{
     )]
     pub farm:Account<'info,Farm>,
 
+    pub staking_mint_program:Interface<'info,TokenInterface>,
+    
     pub system_program:Program<'info,System>,
     pub associated_token_program:Program<'info,AssociatedToken>,
 
@@ -59,13 +60,13 @@ pub fn handle_create_farm<'info>(ctx: Context<'info, CreateFarm<'info>>,reward_s
     let farm = &mut ctx.accounts.farm;
 
     let mut reward_streams_count:u8 = 0;
-    let clock = Clock::get()?;
+    let block_timestamp = Clock::get()?.unix_timestamp;
     for i in 0..5 {
         if let Some(RewardStreamArgs {open_time,end_time,emission_per_second_x64}) = reward_streams[i] {
 
-            let reward_mint:&mut InterfaceAccount<Mint> = &mut InterfaceAccount::try_from(ctx.remaining_accounts.index(i*3))?;
-            let reward_vault:&mut InterfaceAccount<TokenAccount> = &mut InterfaceAccount::try_from(ctx.remaining_accounts.index(i*3 + 1))?;
-            let creator_reward_token:InterfaceAccount<TokenAccount> = InterfaceAccount::try_from(ctx.remaining_accounts.index(i*3 + 2))?;
+            let reward_mint:&InterfaceAccount<Mint> = &InterfaceAccount::try_from(ctx.remaining_accounts.index(i*3))?;
+            let reward_vault:&InterfaceAccount<TokenAccount> = &InterfaceAccount::try_from(ctx.remaining_accounts.index(i*3 + 1))?;
+            let creator_reward_token:&InterfaceAccount<TokenAccount> = &InterfaceAccount::try_from(ctx.remaining_accounts.index(i*3 + 2))?;
 
             // validate reward vault is an ATA of reward mint owned by farm.
             let reward_vault_address = get_associated_token_address_with_program_id(&farm.key(), &reward_mint.key(), &reward_mint.to_account_info().owner.key());
@@ -74,8 +75,8 @@ pub fn handle_create_farm<'info>(ctx: Context<'info, CreateFarm<'info>>,reward_s
             // validate creator's reward token is of mint reward mint, and owned by the creator.
             require_keys_eq!(creator_reward_token.owner,ctx.accounts.creator.key(),ErrorCode::MismatchingAccounts); 
 
-            require!(open_time > clock.unix_timestamp,ErrorCode::OpenTimeHasToBeInFuture);
-            require!(end_time > open_time,ErrorCode::OpenTimeHasToBeInFuture);
+            require!(open_time >= block_timestamp,ErrorCode::OpenTimeCannotBeInPast);
+            require!(end_time > open_time,ErrorCode::OpenTimeCannotBeInPast);
 
 
             // let create_reward_vault_ctx = CpiContext::new(ctx.accounts.associated_token_program.key(),Create {
@@ -105,10 +106,11 @@ pub fn handle_create_farm<'info>(ctx: Context<'info, CreateFarm<'info>>,reward_s
                 transfer_checked(fund_vault_ctx,transfer_amount,reward_mint.decimals)?;
             }
 
-
+            ;
             farm.reward_streams[reward_streams_count as usize] = RewardStream {
                 reward_mint:reward_mint.key(),
-                status:RewardStreamStatus::Unused,
+                reward_mint_program:reward_mint.to_account_info().owner.key(),
+                status: if open_time == block_timestamp { RewardStreamStatus::Running } else { RewardStreamStatus::Unused },
                 open_time,
                 end_time,
                 emission_per_second_x64,
@@ -122,8 +124,8 @@ pub fn handle_create_farm<'info>(ctx: Context<'info, CreateFarm<'info>>,reward_s
     farm.set_inner(Farm {
         authority: ctx.accounts.creator.key(),
         staking_mint: ctx.accounts.staking_mint.key(),
-        staking_mint_program:ctx.accounts.staking_mint_program.key(), // used to auto-resolve / validate the staking vault over other ixns.
-        last_updated_time: clock.unix_timestamp,
+        staking_mint_program: ctx.accounts.staking_mint_program.key(),
+        last_updated_time: block_timestamp,
         reward_streams_count,
         reward_streams: farm.reward_streams,
         staked_amount:0,

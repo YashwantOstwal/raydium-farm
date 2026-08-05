@@ -53,7 +53,7 @@ pub fn handle_restart_rewards(ctx:Context<RestartRewards>,reward_stream_idx:u8,r
     require!(farm.reward_streams[reward_stream_idx as usize].status == RewardStreamStatus::Ended,ErrorCode::RewardStreamIsRunning);
 
     let block_timestamp = Clock::get()?.unix_timestamp;
-    require!(reward_stream.open_time > block_timestamp,ErrorCode::OpenTimeHasToBeInFuture);
+    require!(reward_stream.open_time >= block_timestamp,ErrorCode::OpenTimeCannotBeInPast);
 
     let total_reward_amount = (reward_stream.end_time.checked_sub(reward_stream.open_time).unwrap() as u128).checked_mul(reward_stream.emission_per_second_x64).unwrap().checked_shr(64).unwrap() as u64;
 
@@ -71,6 +71,7 @@ pub fn handle_restart_rewards(ctx:Context<RestartRewards>,reward_stream_idx:u8,r
     }
     farm.reward_streams[reward_stream_idx as usize] = RewardStream {
         reward_mint: ctx.accounts.reward_mint.key(),
+        reward_mint_program:ctx.accounts.reward_mint_program.key(),
         status: RewardStreamStatus::Unused,
         open_time: reward_stream.open_time,
         end_time: reward_stream.end_time,

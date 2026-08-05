@@ -8,7 +8,7 @@ use anchor_spl::{ token_interface::{Mint,TokenAccount,TokenInterface,transfer_ch
 #[derive(Accounts)]
 pub struct Harvest<'info> {
 
-    pub user: Signer<'info>,
+    pub user: SystemAccount<'info>,
 
     pub staking_mint: InterfaceAccount<'info,Mint>,
 
@@ -21,6 +21,7 @@ pub struct Harvest<'info> {
 
     #[account(
         mut,
+        has_one = user,
         seeds = [UserLedger::STATIC_SEED,farm.key().as_ref(),user.key().as_ref()],
         bump = user_ledger.bump
     )]
@@ -74,7 +75,7 @@ pub fn handle_harvest<'info>(ctx:Context<'info,Harvest<'info>>)-> Result<()> {
             transfer_checked(transfer_ctx,transfer_amount,reward_mint.decimals)?;
         }
 
-        user_ledger.reward_infos[i as usize].pending_rewards_x64 = user_ledger.reward_infos[i as usize].pending_rewards_x64.checked_sub(transfer_amount.checked_shl(64).unwrap() as u128).unwrap();
+        user_ledger.reward_infos[i as usize].pending_rewards_x64 = user_ledger.reward_infos[i as usize].pending_rewards_x64.checked_sub(u128::from(transfer_amount).checked_shl(64).unwrap()).unwrap();
     }
 
     Ok(())

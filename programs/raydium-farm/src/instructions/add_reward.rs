@@ -8,7 +8,7 @@ use anchor_spl::token_interface::{transfer_checked, Mint, TokenInterface, TokenA
 pub struct AddReward<'info> {
     pub authority: Signer<'info>,
 
-    pub staking_mint: InterfaceAccount<'info,Mint>,
+    pub staking_mint: Box<InterfaceAccount<'info,Mint>>,
 
     #[account(
         mut,
@@ -17,12 +17,12 @@ pub struct AddReward<'info> {
         seeds = [Farm::STATIC_SEED.as_ref(), staking_mint.key().as_ref()],
         bump = farm.bump
     )]
-    pub farm: Account<'info,Farm>,
+    pub farm: Box<Account<'info,Farm>>,
 
     #[account(
         mint::token_program = reward_mint_program,
     )]
-    pub reward_mint: InterfaceAccount<'info,Mint>,
+    pub reward_mint: Box<InterfaceAccount<'info,Mint>>,
     
     
     #[account(
@@ -31,7 +31,7 @@ pub struct AddReward<'info> {
         associated_token::mint = reward_mint,
         associated_token::token_program = reward_mint_program
     )]
-    pub reward_vault: InterfaceAccount<'info,TokenAccount>,
+    pub reward_vault: Box<InterfaceAccount<'info,TokenAccount>>,
 
     #[account(
         mut,
@@ -39,7 +39,7 @@ pub struct AddReward<'info> {
         token::mint = reward_mint,
         token::token_program = reward_mint_program
     )]
-    pub authority_reward_token: InterfaceAccount<'info,TokenAccount>,
+    pub authority_reward_token: Box<InterfaceAccount<'info,TokenAccount>>,
 
     pub reward_mint_program:Interface<'info,TokenInterface>,
 }
@@ -51,7 +51,7 @@ pub fn handle_add_reward(ctx:Context<AddReward>,new_reward_stream:RewardStreamAr
     require!(farm.reward_streams_count < 5, ErrorCode::RewardStreamsLimitExceeded);
 
     let block_timestamp = Clock::get()?.unix_timestamp;
-    require!(new_reward_stream.open_time > block_timestamp,ErrorCode::OpenTimeHasToBeInFuture);
+    require!(new_reward_stream.open_time >= block_timestamp,ErrorCode::OpenTimeCannotBeInPast);
 
     let total_reward_amount = (new_reward_stream.end_time.checked_sub(new_reward_stream.open_time).unwrap() as u128).checked_mul(new_reward_stream.emission_per_second_x64).unwrap().checked_shr(64).unwrap() as u64;
 
@@ -70,6 +70,7 @@ pub fn handle_add_reward(ctx:Context<AddReward>,new_reward_stream:RewardStreamAr
     let new_farm_idx = farm.reward_streams_count as usize;
     farm.reward_streams[new_farm_idx] = RewardStream {
         reward_mint: ctx.accounts.reward_mint.key(),
+        reward_mint_program:ctx.accounts.reward_mint_program.key(),
         status: RewardStreamStatus::Unused,
         open_time: new_reward_stream.open_time,
         end_time: new_reward_stream.end_time,

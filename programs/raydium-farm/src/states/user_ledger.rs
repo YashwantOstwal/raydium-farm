@@ -4,7 +4,7 @@ use anchor_lang::prelude::*;
 use crate::Farm;
 
 #[account]
-#[derive(InitSpace)]
+#[derive(InitSpace,Debug)]
 pub struct UserLedger {
     pub user: Pubkey,
     pub staked_amount: u64,
@@ -12,7 +12,7 @@ pub struct UserLedger {
     pub bump: u8
 }
 
-#[derive(AnchorSerialize,AnchorDeserialize,Clone,Copy,InitSpace)]
+#[derive(AnchorSerialize,AnchorDeserialize,Clone,Copy,InitSpace,Debug)]
 pub struct RewardInfo {
     pub rewards_debt_x64: u128,
     pub pending_rewards_x64: u128,

@@ -2,7 +2,7 @@
 use anchor_lang::prelude::*;
 
 #[account]
-#[derive(InitSpace)]
+#[derive(InitSpace,Debug)]
 pub struct Farm {
     pub authority:Pubkey, 
     pub staking_mint:Pubkey,
@@ -14,9 +14,11 @@ pub struct Farm {
     pub bump: u8
 }
 
-#[derive(AnchorSerialize,AnchorDeserialize,Copy,Clone,InitSpace)]
+#[derive(AnchorSerialize,AnchorDeserialize,Copy,Clone,InitSpace,Debug)]
 pub struct RewardStream {
     pub reward_mint:Pubkey,
+    pub reward_mint_program:Pubkey,
+
     pub status:RewardStreamStatus,
     pub open_time:i64,
     pub end_time:i64,
@@ -26,7 +28,7 @@ pub struct RewardStream {
 }
 
 
-#[derive(AnchorSerialize,AnchorDeserialize,Copy,Clone,InitSpace,PartialEq,Eq)]
+#[derive(AnchorSerialize,AnchorDeserialize,Copy,Clone,InitSpace,PartialEq,Eq,Debug)]
 pub enum RewardStreamStatus {
     Unused,
     Running,
@@ -42,7 +44,7 @@ impl Farm {
             for i in 0..self.reward_streams_count {
                 if self.reward_streams[i as usize].open_time < block_timestamp {
                     self.reward_streams[i as usize].status = RewardStreamStatus::Unused;
-                }else if self.reward_streams[i as usize].open_time >= block_timestamp && self.reward_streams[i as usize].end_time <= block_timestamp {
+                }else if self.reward_streams[i as usize].open_time <= block_timestamp &&  block_timestamp <= self.reward_streams[i as usize].end_time  {
                    self.reward_streams[i as usize].status = RewardStreamStatus::Running;
                    if self.staked_amount > 0 {
                        let duration = block_timestamp.checked_sub(self.reward_streams[i as usize].open_time.max(self.last_updated_time)).unwrap() as u128;

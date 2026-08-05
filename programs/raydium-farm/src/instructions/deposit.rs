@@ -22,8 +22,6 @@ pub struct Deposit<'info> {
     )]
     pub farm: Box<Account<'info,Farm>>,
 
-    pub staking_mint_program:Interface<'info,TokenInterface>,
-
     #[account(
         mut,
         token::mint = staking_mint,
@@ -48,6 +46,8 @@ pub struct Deposit<'info> {
         bump
     )]
     pub user_ledger:Box<Account<'info,UserLedger>>,
+
+    pub staking_mint_program:Interface<'info,TokenInterface>,
 
     pub system_program:Program<'info,System>,
 
@@ -102,8 +102,7 @@ pub fn handle_deposit<'info>(ctx:Context<'info,Deposit<'info>>,deposit_amount:u6
 
             transfer_checked(transfer_ctx,transfer_amount,reward_mint.decimals)?;
         }
-
-        user_ledger.reward_infos[i as usize].pending_rewards_x64 = user_ledger.reward_infos[i as usize].pending_rewards_x64.checked_sub(transfer_amount.checked_shl(64).unwrap() as u128).unwrap();
+        user_ledger.reward_infos[i as usize].pending_rewards_x64 = user_ledger.reward_infos[i as usize].pending_rewards_x64.checked_sub((u128::from(transfer_amount)).checked_shl(64).unwrap()).unwrap();
     }
 
     // Deposit
@@ -119,8 +118,9 @@ pub fn handle_deposit<'info>(ctx:Context<'info,Deposit<'info>>,deposit_amount:u6
     user_ledger.staked_amount = user_ledger.staked_amount.checked_add(deposit_amount).unwrap();
 
     for i in 0..farm.reward_streams_count {
-        user_ledger.reward_infos[i as usize].rewards_debt_x64 = user_ledger.reward_infos[i as usize].rewards_debt_x64.checked_add(farm.reward_streams[i as usize].acc_rewards_per_base_unit_x64.checked_mul(deposit_amount.into()).unwrap()).unwrap();
+        user_ledger.reward_infos[i as usize].rewards_debt_x64 = user_ledger.reward_infos[i as usize].rewards_debt_x64.checked_add(farm.reward_streams[i as usize].acc_rewards_per_base_unit_x64.checked_mul(deposit_amount as u128).unwrap()).unwrap();
     }
-    
+    user_ledger.bump = ctx.bumps.user_ledger;
+    user_ledger.user = ctx.accounts.user.key();
     Ok(())
 }

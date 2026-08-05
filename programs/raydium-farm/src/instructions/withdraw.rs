@@ -97,7 +97,7 @@ pub fn handle_withdraw<'info>(ctx:Context<'info,Withdraw<'info>>,withdraw_amount
             transfer_checked(transfer_ctx,transfer_amount,reward_mint.decimals)?;
         }
 
-        user_ledger.reward_infos[i as usize].pending_rewards_x64 = user_ledger.reward_infos[i as usize].pending_rewards_x64.checked_sub(transfer_amount.checked_shl(64).unwrap() as u128).unwrap();
+        user_ledger.reward_infos[i as usize].pending_rewards_x64 = user_ledger.reward_infos[i as usize].pending_rewards_x64.checked_sub((u128::from(transfer_amount)).checked_shl(64).unwrap()).unwrap();
     }
 
     // Withdraw
