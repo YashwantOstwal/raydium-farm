@@ -8,7 +8,7 @@ use anchor_spl::{ token_interface::{Mint,TokenAccount,Token2022,TokenInterface,t
 #[derive(Accounts)]
 pub struct Harvest<'info> {
 
-    /// CHECK: Owner of the below UserLedger account, harvest is permissionless ixn, Could be invoked by the farm authority to harvest on behalf of the stakers before withdrawing the reward funds after that particular reward stream has ended.
+    /// CHECK: Owner of the below UserLedger account and Reward mint token accounts, harvest is permissionless ixn. Could be invoked by the farm authority to harvest on behalf of the stakers before withdrawing the reward funds after that particular reward stream has ended.
     pub user: UncheckedAccount<'info>,
 
     pub staking_mint: InterfaceAccount<'info,Mint>,
@@ -31,13 +31,14 @@ pub struct Harvest<'info> {
 
     pub token_program:Program<'info,Token>,
     pub token_2022_program:Program<'info,Token2022>
+
     // REMAINING ACCOUNTS 
 
     // reward_mint_i: InterfaceAccount<Mint>,
     // reward_vault_i:InterfaceAccount<TokenAccount>
     // user_reward_token_i: InterfaceAccount<TokenAccount>,
 
-    // i: 0 -> n - 1 where n = reward_streams_count
+    // i: 0 -> n - 1 where n = farm.reward_streams_count
 }
 
 pub fn handle_harvest<'info>(ctx:Context<'info,Harvest<'info>>)-> Result<()> {
@@ -61,8 +62,8 @@ pub fn handle_harvest<'info>(ctx:Context<'info,Harvest<'info>>)-> Result<()> {
         require_keys_eq!(user_reward_token.owner,ctx.accounts.user.key(),ErrorCode::MismatchingAccounts);
 
         // validate reward vault is an ATA of reward mint owned by farm.
-        let reward_vault_address = get_associated_token_address_with_program_id(&farm.key(), &reward_mint.key(), &reward_mint.to_account_info().owner.key());
-        require_keys_eq!(reward_vault.key(),reward_vault_address);
+        let reward_vault_ata = get_associated_token_address_with_program_id(&farm.key(), &reward_mint.key(), &reward_mint.to_account_info().owner.key());
+        require_keys_eq!(reward_vault.key(),reward_vault_ata);
 
         // validate the reward mint.
         require_keys_eq!(reward_mint.key(),farm.reward_streams[i as usize].reward_mint,ErrorCode::MismatchingAccounts);
