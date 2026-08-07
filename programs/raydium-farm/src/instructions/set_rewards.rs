@@ -7,7 +7,7 @@ use anchor_spl::{token_interface::{TokenAccount,Mint,TokenInterface,transfer_che
 pub struct SetRewards<'info> {
     pub authority: Signer<'info>, 
 
-    pub staking_mint: InterfaceAccount<'info,Mint>,
+    pub staking_mint: Box<InterfaceAccount<'info,Mint>>,
     #[account(
         mut,
         has_one = authority,
@@ -15,12 +15,12 @@ pub struct SetRewards<'info> {
         seeds = [Farm::STATIC_SEED.as_ref(), staking_mint.key().as_ref()],
         bump = farm.bump
     )]
-    pub farm: Account<'info,Farm>,
+    pub farm: Box<Account<'info,Farm>>,
 
     #[account(
         mint::token_program = reward_mint_program,
     )]
-    pub reward_mint: InterfaceAccount<'info,Mint>,
+    pub reward_mint: Box<InterfaceAccount<'info,Mint>>,
     
     #[account(
         mut,
@@ -28,7 +28,7 @@ pub struct SetRewards<'info> {
         associated_token::mint = reward_mint,
         associated_token::token_program = reward_mint_program
     )]
-    pub reward_vault: InterfaceAccount<'info,TokenAccount>,
+    pub reward_vault: Box<InterfaceAccount<'info,TokenAccount>>,
 
     #[account(
         mut,
@@ -36,7 +36,7 @@ pub struct SetRewards<'info> {
         token::mint = reward_mint,
         token::token_program = reward_mint_program
     )]
-    pub authority_reward_token: InterfaceAccount<'info,TokenAccount>,
+    pub authority_reward_token: Box<InterfaceAccount<'info,TokenAccount>>,
     
     pub reward_mint_program:Interface<'info,TokenInterface>,
 
@@ -56,10 +56,15 @@ pub fn handle_set_rewards(ctx:Context<SetRewards>,reward_stream_idx:u8,updated_r
     require!(updated_reward_stream.end_time >= farm.reward_streams[reward_stream_idx as usize].end_time,ErrorCode::CannotShrinkEndTime);
     require!(updated_reward_stream.emission_per_second_x64 >= farm.reward_streams[reward_stream_idx as usize].emission_per_second_x64,ErrorCode::CannotLowerEmissionPerSecond);
 
-    let new_required_reward_vault_balance = (updated_reward_stream.end_time.checked_sub(farm.last_updated_time).unwrap() as u128).checked_mul(updated_reward_stream.emission_per_second_x64).unwrap().checked_shr(64).unwrap() as u64;
-    let transfer_amount = new_required_reward_vault_balance.checked_sub(ctx.accounts.reward_vault.amount).unwrap();
 
-    if transfer_amount > 0 {
+
+    let total_new_rewards =  (updated_reward_stream.end_time.checked_sub(updated_reward_stream.open_time.max(farm.last_updated_time)).unwrap() as u128).checked_mul(updated_reward_stream.emission_per_second_x64).unwrap();
+
+    let required_reward_vault_balance = total_new_rewards.checked_sub(farm.reward_streams[reward_stream_idx as usize].rewards_left_x64).unwrap().checked_shr(64).unwrap() as u64;
+    if required_reward_vault_balance > ctx.accounts.authority_reward_token.amount {
+
+        let transfer_amount = required_reward_vault_balance.checked_sub(ctx.accounts.reward_vault.amount).unwrap();
+
         require!(transfer_amount <= ctx.accounts.authority_reward_token.amount,ErrorCode::InsufficientBalance);
 
         let fund_vault_ctx = CpiContext::new(ctx.accounts.reward_mint_program.key(), TransferChecked {
@@ -76,6 +81,7 @@ pub fn handle_set_rewards(ctx:Context<SetRewards>,reward_stream_idx:u8,updated_r
         status: farm.reward_streams[reward_stream_idx as usize].status,
         open_time: farm.reward_streams[reward_stream_idx as usize].open_time,
         end_time: updated_reward_stream.end_time,
+        rewards_left_x64:total_new_rewards,
         emission_per_second_x64: updated_reward_stream.emission_per_second_x64,
         acc_rewards_per_base_unit_x64: farm.reward_streams[reward_stream_idx as usize].acc_rewards_per_base_unit_x64,
     };

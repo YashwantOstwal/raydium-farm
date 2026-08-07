@@ -53,28 +53,40 @@ pub fn handle_add_reward(ctx:Context<AddReward>,new_reward_stream:RewardStreamAr
     let block_timestamp = Clock::get()?.unix_timestamp;
     require!(new_reward_stream.open_time >= block_timestamp,ErrorCode::OpenTimeCannotBeInPast);
 
-    let total_reward_amount = (new_reward_stream.end_time.checked_sub(new_reward_stream.open_time).unwrap() as u128).checked_mul(new_reward_stream.emission_per_second_x64).unwrap().checked_shr(64).unwrap() as u64;
+    let reward_mint = &ctx.accounts.reward_mint;
+    let reward_vault = &ctx.accounts.reward_vault;
+    for i in 0..farm.reward_streams_count {
+        require_keys_neq!(farm.reward_streams[i as usize].reward_mint,reward_mint.key(),ErrorCode::RewardStreamWithRewardMintAlreadyExist)
+    }
 
-    let transfer_amount = total_reward_amount.checked_sub(ctx.accounts.reward_vault.amount).unwrap();
-    if transfer_amount > 0 {
+    let total_rewards = (new_reward_stream.end_time.checked_sub(new_reward_stream.open_time).unwrap() as u128).checked_mul(new_reward_stream.emission_per_second_x64).unwrap();
+
+    let required_reward_vault_balance = total_rewards.checked_shr(64).unwrap() as u64;
+
+    // if the vault already has some deposit.
+    if required_reward_vault_balance > reward_vault.amount {
+
+        let transfer_amount = required_reward_vault_balance.checked_sub(reward_vault.amount).unwrap();
+
         require!(transfer_amount <= ctx.accounts.authority_reward_token.amount,ErrorCode::InsufficientBalance);
-
-        let fund_vault_ctx = CpiContext::new(ctx.accounts.reward_mint_program.key(), TransferChecked {
-            from:ctx.accounts.authority_reward_token.to_account_info(),
-            to:ctx.accounts.reward_vault.to_account_info(),
-            mint:ctx.accounts.reward_mint.to_account_info(),
+        let fund_vault_ctx = CpiContext::new(reward_mint.to_account_info().owner.key(),TransferChecked {
+            from: ctx.accounts.authority_reward_token.to_account_info(),
+            to:reward_vault.to_account_info(),
+            mint:reward_mint.to_account_info(),
             authority:ctx.accounts.authority.to_account_info()
         });
-        transfer_checked(fund_vault_ctx, transfer_amount, ctx.accounts.reward_mint.decimals)?;
+        transfer_checked(fund_vault_ctx,transfer_amount,reward_mint.decimals)?;
     }
+
     let new_farm_idx = farm.reward_streams_count as usize;
     farm.reward_streams[new_farm_idx] = RewardStream {
-        reward_mint: ctx.accounts.reward_mint.key(),
-        reward_mint_program:ctx.accounts.reward_mint_program.key(),
-        status: RewardStreamStatus::Unused,
+        reward_mint: reward_mint.key(),
+        reward_mint_program:reward_mint.to_account_info().owner.key(),
+        status: if new_reward_stream.open_time == block_timestamp { RewardStreamStatus::Running } else { RewardStreamStatus::Unused },
         open_time: new_reward_stream.open_time,
         end_time: new_reward_stream.end_time,
         acc_rewards_per_base_unit_x64: 0,
+        rewards_left_x64:total_rewards,
         emission_per_second_x64: new_reward_stream.emission_per_second_x64,
     };
     farm.reward_streams_count += 1;

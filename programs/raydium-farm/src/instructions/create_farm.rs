@@ -89,13 +89,16 @@ pub fn handle_create_farm<'info>(ctx: Context<'info, CreateFarm<'info>>,reward_s
             
             // create(create_reward_vault_ctx)?;
 
-            let total_reward_amount = (end_time.checked_sub(open_time).unwrap() as u128).checked_mul(emission_per_second_x64).unwrap().checked_shr(64).unwrap() as u64;
+            let total_rewards = (end_time.checked_sub(open_time).unwrap() as u128).checked_mul(emission_per_second_x64).unwrap();
+
+            let required_reward_vault_balance = total_rewards.checked_shr(64).unwrap() as u64;
 
             // if the vault already has some deposit.
-            let transfer_amount = total_reward_amount.checked_sub(reward_vault.amount).unwrap();
-            if transfer_amount > 0 {
-                require!(transfer_amount <= creator_reward_token.amount,ErrorCode::InsufficientBalance);
+            if required_reward_vault_balance > reward_vault.amount {
 
+                let transfer_amount = required_reward_vault_balance.checked_sub(reward_vault.amount).unwrap();
+
+                require!(transfer_amount <= creator_reward_token.amount,ErrorCode::InsufficientBalance);
                 let fund_vault_ctx = CpiContext::new(reward_mint.to_account_info().owner.key(),TransferChecked {
                     from:creator_reward_token.to_account_info(),
                     to:reward_vault.to_account_info(),
@@ -112,7 +115,7 @@ pub fn handle_create_farm<'info>(ctx: Context<'info, CreateFarm<'info>>,reward_s
                 open_time,
                 end_time,
                 emission_per_second_x64,
-                // total_rewards_emitted_x64:0,
+                rewards_left_x64:total_rewards,
                 acc_rewards_per_base_unit_x64:0,
 
             };

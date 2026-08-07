@@ -36,5 +36,8 @@ pub enum ErrorCode {
     CannotLowerEmissionPerSecond,
 
     #[msg("Custom error message")]
-    RewardStreamIsRunning
+    RewardStreamIsRunning,
+
+    #[msg("Consider using Set rewards")]
+    RewardStreamWithRewardMintAlreadyExist
 }

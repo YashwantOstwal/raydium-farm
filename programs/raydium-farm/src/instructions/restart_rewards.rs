@@ -7,7 +7,7 @@ use anchor_spl::{token_interface::{TokenAccount,Mint,TokenInterface,transfer_che
 pub struct RestartRewards<'info> {
     pub authority: Signer<'info>, 
 
-    pub staking_mint: InterfaceAccount<'info,Mint>,
+    pub staking_mint: Box<InterfaceAccount<'info,Mint>>,
 
     #[account(
         mut,
@@ -16,12 +16,12 @@ pub struct RestartRewards<'info> {
         seeds = [Farm::STATIC_SEED.as_ref(), staking_mint.key().as_ref()],
         bump = farm.bump
     )]
-    pub farm: Account<'info,Farm>,
+    pub farm: Box<Account<'info,Farm>>,
 
     #[account(
         mint::token_program = reward_mint_program,
     )]
-    pub reward_mint: InterfaceAccount<'info,Mint>,
+    pub reward_mint: Box<InterfaceAccount<'info,Mint>>,
     
     #[account(
         mut,
@@ -29,7 +29,7 @@ pub struct RestartRewards<'info> {
         associated_token::mint = reward_mint,
         associated_token::token_program = reward_mint_program
     )]
-    pub reward_vault: InterfaceAccount<'info,TokenAccount>,
+    pub reward_vault: Box<InterfaceAccount<'info,TokenAccount>>,
 
     #[account(
         mut,
@@ -37,7 +37,7 @@ pub struct RestartRewards<'info> {
         token::mint = reward_mint,
         token::token_program = reward_mint_program
     )]
-    pub authority_reward_token: InterfaceAccount<'info,TokenAccount>,
+    pub authority_reward_token: Box<InterfaceAccount<'info,TokenAccount>>,
     
     pub reward_mint_program:Interface<'info,TokenInterface>,
 }
@@ -55,10 +55,13 @@ pub fn handle_restart_rewards(ctx:Context<RestartRewards>,reward_stream_idx:u8,r
     let block_timestamp = Clock::get()?.unix_timestamp;
     require!(reward_stream.open_time >= block_timestamp,ErrorCode::OpenTimeCannotBeInPast);
 
-    let total_reward_amount = (reward_stream.end_time.checked_sub(reward_stream.open_time).unwrap() as u128).checked_mul(reward_stream.emission_per_second_x64).unwrap().checked_shr(64).unwrap() as u64;
+    let total_rewards = (reward_stream.end_time.checked_sub(reward_stream.open_time).unwrap() as u128).checked_mul(reward_stream.emission_per_second_x64).unwrap();
 
-    let transfer_amount = total_reward_amount.checked_sub(ctx.accounts.reward_vault.amount).unwrap();
-    if transfer_amount > 0 {
+    let required_reward_vault_balance = total_rewards.checked_sub(farm.reward_streams[reward_stream_idx as usize].rewards_left_x64).unwrap().checked_shr(64).unwrap() as u64;
+
+
+    if required_reward_vault_balance > ctx.accounts.reward_vault.amount {
+        let transfer_amount = required_reward_vault_balance.checked_sub(ctx.accounts.reward_vault.amount).unwrap();
         require!(transfer_amount <= ctx.accounts.authority_reward_token.amount,ErrorCode::InsufficientBalance);
 
         let fund_vault_ctx = CpiContext::new(ctx.accounts.reward_mint_program.key(), TransferChecked {
@@ -72,9 +75,10 @@ pub fn handle_restart_rewards(ctx:Context<RestartRewards>,reward_stream_idx:u8,r
     farm.reward_streams[reward_stream_idx as usize] = RewardStream {
         reward_mint: ctx.accounts.reward_mint.key(),
         reward_mint_program:ctx.accounts.reward_mint_program.key(),
-        status: RewardStreamStatus::Unused,
+        status: if reward_stream.open_time == block_timestamp { RewardStreamStatus::Running } else { RewardStreamStatus::Unused },
         open_time: reward_stream.open_time,
         end_time: reward_stream.end_time,
+        rewards_left_x64:total_rewards,
         acc_rewards_per_base_unit_x64: 0,
         emission_per_second_x64: reward_stream.emission_per_second_x64,
     };

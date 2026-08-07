@@ -8,7 +8,7 @@ pub struct WithdrawReward<'info> {
 
     pub authority: Signer<'info>,
 
-    pub staking_mint: InterfaceAccount<'info,Mint>,
+    pub staking_mint:Box< InterfaceAccount<'info,Mint>>,
 
     #[account(
         mut,
@@ -17,12 +17,12 @@ pub struct WithdrawReward<'info> {
         seeds = [Farm::STATIC_SEED,staking_mint.key().as_ref()],
         bump = farm.bump
     )]
-    pub farm: Account<'info,Farm>,
+    pub farm:Box< Account<'info,Farm>>,
 
     #[account(
         mint::token_program = reward_mint_program,
     )]
-    pub reward_mint:InterfaceAccount<'info,Mint>,
+    pub reward_mint:Box<InterfaceAccount<'info,Mint>>,
 
     #[account(
         mut,
@@ -30,7 +30,7 @@ pub struct WithdrawReward<'info> {
         token::authority = authority,
         token::token_program = reward_mint_program,
     )]
-    pub authority_reward_token: InterfaceAccount<'info,TokenAccount>,
+    pub authority_reward_token: Box<InterfaceAccount<'info,TokenAccount>>,
 
     #[account(
         mut,
@@ -38,7 +38,7 @@ pub struct WithdrawReward<'info> {
         associated_token::authority = farm,
         associated_token::token_program = reward_mint_program,
     )]
-    pub reward_vault: InterfaceAccount<'info,TokenAccount>,
+    pub reward_vault: Box<InterfaceAccount<'info,TokenAccount>>,
 
     pub reward_mint_program:Interface<'info,TokenInterface>,
 }

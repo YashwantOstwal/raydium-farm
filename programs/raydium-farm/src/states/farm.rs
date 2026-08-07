@@ -23,7 +23,7 @@ pub struct RewardStream {
     pub open_time:i64,
     pub end_time:i64,
     pub acc_rewards_per_base_unit_x64: u128,
-    // pub total_rewards_emitted_x64:u128,
+    pub rewards_left_x64:u128,
     pub emission_per_second_x64: u128,
 }
 
@@ -49,6 +49,8 @@ impl Farm {
                    if self.staked_amount > 0 {
                        let duration = block_timestamp.checked_sub(self.reward_streams[i as usize].open_time.max(self.last_updated_time)).unwrap() as u128;
                        let new_emission = duration.checked_mul(self.reward_streams[i as usize].emission_per_second_x64).unwrap();
+                       
+                       self.reward_streams[i as usize].rewards_left_x64 = self.reward_streams[i as usize].rewards_left_x64.checked_sub(new_emission).unwrap();
                        self.reward_streams[i as usize].acc_rewards_per_base_unit_x64 = self.reward_streams[i as usize].acc_rewards_per_base_unit_x64.checked_add(new_emission.checked_div(self.staked_amount.into()).unwrap()).unwrap();
                    }
                 }else {
@@ -56,6 +58,8 @@ impl Farm {
                    if self.staked_amount > 0 {
                        let duration = self.reward_streams[i as usize].end_time.checked_sub(self.reward_streams[i as usize].end_time.min(self.last_updated_time)).unwrap() as u128;
                        let new_emission = duration.checked_mul(self.reward_streams[i as usize].emission_per_second_x64).unwrap();
+
+                       self.reward_streams[i as usize].rewards_left_x64 = self.reward_streams[i as usize].rewards_left_x64.checked_sub(new_emission).unwrap();
                        self.reward_streams[i as usize].acc_rewards_per_base_unit_x64 = self.reward_streams[i as usize].acc_rewards_per_base_unit_x64.checked_add(new_emission.checked_div(self.staked_amount.into()).unwrap()).unwrap();
                    }
                 };
