@@ -3,7 +3,7 @@ use std::ops::Index;
 use crate::{error::ErrorCode, states::*, utils::*};
 
 use anchor_lang::prelude::*;
-use anchor_spl::{associated_token::{create, get_associated_token_address_with_program_id, AssociatedToken, Create}, token_interface::{Mint, TokenAccount, TokenInterface,transfer_checked,TransferChecked},token::{Token},token_2022::{Token2022}};
+use anchor_spl::{associated_token::{create, get_associated_token_address_with_program_id, AssociatedToken, Create,}, token_interface::{Mint, TokenAccount, TokenInterface,transfer_checked,TransferChecked},token::{Token},token_2022::{Token2022}};
 
 
 #[derive(Accounts)]
@@ -13,13 +13,18 @@ pub struct CreateFarm<'info>{
 
     pub staking_mint:InterfaceAccount<'info,Mint>,
 
+    /// CHECK: initialised in the instruction to reduce redudant account from the context "staking_mint_program", seeds order referred from the official repo of AssociatedToken https://github.com/solana-program/associated-token-account/blob/main/interface/src/address.rs, 
     #[account(
         mut,
-        associated_token::mint = staking_mint,
-        associated_token::authority = farm,
-        associated_token::token_program = staking_mint.to_account_info().owner
+        seeds = [farm.key().as_ref(),staking_mint.to_account_info().owner.key().as_ref(),staking_mint.key().as_ref()],
+        bump,
+        seeds::program = associated_token_program
+
+        // associated_token::mint = staking_mint,
+        // associated_token::authority = farm,
+        // associated_token::token_program = staking_mint.to_account_info().owner
     )]
-    pub staking_token_vault:InterfaceAccount<'info,TokenAccount>,
+    pub staking_token_vault:UncheckedAccount<'info>,
     
     #[account(
         init,
@@ -39,13 +44,12 @@ pub struct CreateFarm<'info>{
     pub associated_token_program:Program<'info,AssociatedToken>,
 
     // REMAINING ACCOUNTS
-    // WE EXPECT THE CREATOR TO HAVE ALREADY CREATED REWARD VAULT (ASSOCIATED TOKEN ACCOUNTS OWNED BY THE FARM) FOR EACH REWARD MINT.
     
     // pub reward_mint_i: InterfaceAccount<Mint>,
-    // pub reward_vault_i: UncheckedAccount (SystemAccount),
+    // pub reward_vault_i: SystemAccount (~ account does not exist yet),
     // pub creator_reward_token_i: InterfaceAccount<TokenAccount>,
 
-    // i: 0 -> no. of reward streams (upto 5 allowed) - 1
+    // i: 0 -> n - 1 where n = no. of reward streams (upto 5 allowed)
 }
 
 #[derive(AnchorSerialize,AnchorDeserialize,Copy,Clone)]
@@ -59,12 +63,26 @@ pub fn handle_create_farm<'info>(ctx: Context<'info, CreateFarm<'info>>,reward_s
     let mut reward_streams_count:u8 = 0;
     let block_timestamp = Clock::get()?.unix_timestamp;
 
+    let create_staking_vault_ctx = CpiContext::new(ctx.accounts.associated_token_program.key(),Create {
+        payer:ctx.accounts.creator.to_account_info(),
+        associated_token:ctx.accounts.staking_token_vault.to_account_info(),
+        authority:ctx.accounts.farm.to_account_info(),
+        mint:ctx.accounts.staking_mint.to_account_info(),
+        token_program:if ctx.accounts.staking_mint.to_account_info().owner.key() == ctx.accounts.token_program.key() {
+            ctx.accounts.token_program.to_account_info()
+        }else {
+            ctx.accounts.token_2022_program.to_account_info()
+        },
+        system_program:ctx.accounts.system_program.to_account_info(),
+    });
+
+    create(create_staking_vault_ctx)?;
     for i in 0..5 {
         if let Some(RewardStreamArgs {open_time,end_time,emission_per_second_x64}) = reward_streams[i] {
 
-            let reward_mint:&InterfaceAccount<Mint> = &InterfaceAccount::try_from(ctx.remaining_accounts.index(i*3))?;
-            let reward_vault:&UncheckedAccount = &UncheckedAccount::try_from(ctx.remaining_accounts.index(i*3 + 1));
-            let creator_reward_token:&InterfaceAccount<TokenAccount> = &InterfaceAccount::try_from(ctx.remaining_accounts.index(i*3 + 2))?;
+            let reward_mint:&InterfaceAccount<Mint> = &InterfaceAccount::try_from(ctx.remaining_accounts.index(i*3)).unwrap();
+            let reward_vault:&SystemAccount = &SystemAccount::try_from(ctx.remaining_accounts.index(i*3 + 1)).unwrap();
+            let creator_reward_token:&InterfaceAccount<TokenAccount> = &InterfaceAccount::try_from(ctx.remaining_accounts.index(i*3 + 2)).unwrap();
 
             // validate reward vault is an ATA of reward mint owned by farm.
             let reward_vault_address = get_associated_token_address_with_program_id(&ctx.accounts.farm.key(), &reward_mint.key(), &reward_mint.to_account_info().owner.key());
@@ -114,7 +132,7 @@ pub fn handle_create_farm<'info>(ctx: Context<'info, CreateFarm<'info>>,reward_s
                 open_time,
                 end_time,
                 emission_per_second_x64,
-                rewards_left_x64:required_vault_balance.checked_shl(64).unwrap() as u128,
+                rewards_left_x64:to_x64(required_vault_balance),
                 acc_rewards_per_base_unit_x64:0,
 
             };
