@@ -1,6 +1,6 @@
 use std::ops::Index;
 
-use crate::{states::*,error::ErrorCode};
+use crate::{error::ErrorCode, states::*, utils::*};
 
 use anchor_lang::prelude::*;
 use anchor_spl::{associated_token::{create, get_associated_token_address_with_program_id, AssociatedToken, Create}, token_interface::{Mint, TokenAccount, TokenInterface,transfer_checked,TransferChecked},token::{Token},token_2022::{Token2022}};
@@ -42,7 +42,7 @@ pub struct CreateFarm<'info>{
     // WE EXPECT THE CREATOR TO HAVE ALREADY CREATED REWARD VAULT (ASSOCIATED TOKEN ACCOUNTS OWNED BY THE FARM) FOR EACH REWARD MINT.
     
     // pub reward_mint_i: InterfaceAccount<Mint>,
-    // pub reward_vault_i: InterfaceAccount<TokenAccount>
+    // pub reward_vault_i: UncheckedAccount (SystemAccount),
     // pub creator_reward_token_i: InterfaceAccount<TokenAccount>,
 
     // i: 0 -> no. of reward streams (upto 5 allowed) - 1
@@ -56,19 +56,18 @@ pub struct RewardStreamArgs {
 }
 pub fn handle_create_farm<'info>(ctx: Context<'info, CreateFarm<'info>>,reward_streams:[Option<RewardStreamArgs>;5])-> Result<()> {
     
-    let farm = &mut ctx.accounts.farm;
-
     let mut reward_streams_count:u8 = 0;
     let block_timestamp = Clock::get()?.unix_timestamp;
+
     for i in 0..5 {
         if let Some(RewardStreamArgs {open_time,end_time,emission_per_second_x64}) = reward_streams[i] {
 
             let reward_mint:&InterfaceAccount<Mint> = &InterfaceAccount::try_from(ctx.remaining_accounts.index(i*3))?;
-            let reward_vault:&InterfaceAccount<TokenAccount> = &InterfaceAccount::try_from(ctx.remaining_accounts.index(i*3 + 1))?;
+            let reward_vault:&UncheckedAccount = &UncheckedAccount::try_from(ctx.remaining_accounts.index(i*3 + 1));
             let creator_reward_token:&InterfaceAccount<TokenAccount> = &InterfaceAccount::try_from(ctx.remaining_accounts.index(i*3 + 2))?;
 
             // validate reward vault is an ATA of reward mint owned by farm.
-            let reward_vault_address = get_associated_token_address_with_program_id(&farm.key(), &reward_mint.key(), &reward_mint.to_account_info().owner.key());
+            let reward_vault_address = get_associated_token_address_with_program_id(&ctx.accounts.farm.key(), &reward_mint.key(), &reward_mint.to_account_info().owner.key());
             require_keys_eq!(reward_vault.key(),reward_vault_address);
 
             // validate creator's reward token is of mint reward mint, and owned by the creator.
@@ -77,37 +76,37 @@ pub fn handle_create_farm<'info>(ctx: Context<'info, CreateFarm<'info>>,reward_s
             require!(open_time >= block_timestamp,ErrorCode::OpenTimeCannotBeInPast);
             require!(end_time > open_time,ErrorCode::OpenTimeCannotBeInPast);
 
-
-            // let create_reward_vault_ctx = CpiContext::new(ctx.accounts.associated_token_program.key(),Create {
-            //     payer:ctx.accounts.creator.to_account_info(),
-            //     associated_token:reward_vault.to_account_info(),
-            //     authority:ctx.accounts.farm.to_account_info(),
-            //     mint:reward_mint.to_account_info(),
-            //     token_program:reward_mint_program.to_account_info(),
-            //     system_program:ctx.accounts.system_program.to_account_info(),
-            // });
+            let create_reward_vault_ctx = CpiContext::new(ctx.accounts.associated_token_program.key(),Create {
+                payer:ctx.accounts.creator.to_account_info(),
+                associated_token:reward_vault.to_account_info(),
+                authority:ctx.accounts.farm.to_account_info(),
+                mint:reward_mint.to_account_info(),
+                token_program:if reward_mint.to_account_info().owner.key() == ctx.accounts.token_program.key() {
+                    ctx.accounts.token_program.to_account_info()
+                }else {
+                    ctx.accounts.token_2022_program.to_account_info()
+                },
+                system_program:ctx.accounts.system_program.to_account_info(),
+            });
             
-            // create(create_reward_vault_ctx)?;
+            create(create_reward_vault_ctx)?;
+            
+            let total_rewards_x64 = emission_per_second_x64
+                .checked_mul(duration(end_time,open_time).into()).unwrap();
 
-            let total_rewards = (end_time.checked_sub(open_time).unwrap() as u128).checked_mul(emission_per_second_x64).unwrap();
+            let required_vault_balance = ceil_div_x64(total_rewards_x64);
 
-            let required_reward_vault_balance = total_rewards.checked_shr(64).unwrap() as u64;
+            require!(required_vault_balance <= creator_reward_token.amount,ErrorCode::InsufficientBalance);
+            let fund_vault_ctx = CpiContext::new(reward_mint.to_account_info().owner.key(),TransferChecked {
+                from:creator_reward_token.to_account_info(),
+                to:reward_vault.to_account_info(),
+                mint:reward_mint.to_account_info(),
+                authority:ctx.accounts.creator.to_account_info()
+            });
+            transfer_checked(fund_vault_ctx,required_vault_balance,reward_mint.decimals)?;
 
-            // if the vault already has some deposit.
-            if required_reward_vault_balance > reward_vault.amount {
 
-                let transfer_amount = required_reward_vault_balance.checked_sub(reward_vault.amount).unwrap();
-
-                require!(transfer_amount <= creator_reward_token.amount,ErrorCode::InsufficientBalance);
-                let fund_vault_ctx = CpiContext::new(reward_mint.to_account_info().owner.key(),TransferChecked {
-                    from:creator_reward_token.to_account_info(),
-                    to:reward_vault.to_account_info(),
-                    mint:reward_mint.to_account_info(),
-                    authority:ctx.accounts.creator.to_account_info()
-                });
-                transfer_checked(fund_vault_ctx,transfer_amount,reward_mint.decimals)?;
-            }
-
+            let farm = &mut ctx.accounts.farm;
             farm.reward_streams[reward_streams_count as usize] = RewardStream {
                 reward_mint:reward_mint.key(),
                 reward_mint_program:reward_mint.to_account_info().owner.key(),
@@ -115,13 +114,15 @@ pub fn handle_create_farm<'info>(ctx: Context<'info, CreateFarm<'info>>,reward_s
                 open_time,
                 end_time,
                 emission_per_second_x64,
-                rewards_left_x64:total_rewards,
+                rewards_left_x64:required_vault_balance.checked_shl(64).unwrap() as u128,
                 acc_rewards_per_base_unit_x64:0,
 
             };
             reward_streams_count += 1;
         }
     }
+
+    let farm = &mut ctx.accounts.farm;
     farm.set_inner(Farm {
         authority: ctx.accounts.creator.key(),
         staking_mint: ctx.accounts.staking_mint.key(),

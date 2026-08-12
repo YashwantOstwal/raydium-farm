@@ -1,7 +1,7 @@
 
 use anchor_lang::prelude::*;
 
-use crate::Farm;
+use crate::{Deposit, Farm, Withdraw};
 
 #[account]
 #[derive(InitSpace,Debug)]
@@ -22,13 +22,15 @@ impl UserLedger {
     pub const LEN:usize = 8 + UserLedger::INIT_SPACE;
     pub const STATIC_SEED:&[u8] = b"user_ledger";
 
-    pub fn update(&mut self, farm:&Account<Farm>) -> Result<()>{
-    for i in 0..farm.reward_streams_count {
-        let new_rewards = farm.reward_streams[i as usize].acc_rewards_per_base_unit_x64.checked_mul(self.staked_amount.into()).unwrap().checked_sub(self.reward_infos[i as usize].rewards_debt_x64).unwrap();
+    pub fn update(&mut self, updated_farm:&Account<Farm>) -> Result<()>{
+    for i in 0..updated_farm.reward_streams_count {
+        let new_rewards = updated_farm.reward_streams[i as usize].acc_rewards_per_base_unit_x64.checked_mul(self.staked_amount.into()).unwrap().checked_sub(self.reward_infos[i as usize].rewards_debt_x64).unwrap();
 
         self.reward_infos[i as usize].pending_rewards_x64 = self.reward_infos[i as usize].pending_rewards_x64.checked_add(new_rewards).unwrap();
         self.reward_infos[i as usize].rewards_debt_x64 = self.reward_infos[i as usize].rewards_debt_x64.checked_add(new_rewards).unwrap();
+        
     }
         Ok(())
     }
+
 }

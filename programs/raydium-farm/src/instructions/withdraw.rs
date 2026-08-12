@@ -1,6 +1,6 @@
 use std::ops::Index;
 
-use crate::{states::*,error::ErrorCode};
+use crate::{states::*,error::ErrorCode,utils::*};
 
 use anchor_lang::prelude::*;
 use anchor_spl::{ token::{Token},token_2022::{Token2022},token_interface::{Mint,TokenAccount,TokenInterface,transfer_checked,TransferChecked},associated_token::{get_associated_token_address_with_program_id}};
@@ -58,20 +58,22 @@ pub struct Withdraw<'info> {
 pub fn handle_withdraw<'info>(ctx:Context<'info,Withdraw<'info>>,withdraw_amount:u64)-> Result<()> {
 
     let user_ledger = &mut ctx.accounts.user_ledger;
-    require!(user_ledger.staked_amount >= withdraw_amount,ErrorCode::InsufficientBalance);
+    require!(withdraw_amount > 0,ErrorCode::InvalidAmount);
+    require!(withdraw_amount <= user_ledger.staked_amount ,ErrorCode::InsufficientBalance);
     
     let farm = &mut ctx.accounts.farm;
+    require!(farm.reward_streams_count.checked_mul(3).unwrap() == ctx.remaining_accounts.len() as u8,ErrorCode::MissingAccounts);
     farm.update()?;
-    
+
     user_ledger.update(farm)?;
 
     let farm_seeds:&[&[u8]] = &[Farm::STATIC_SEED,farm.staking_mint.as_ref(),&[farm.bump]];
     let signer_seeds = [&farm_seeds[..]];
     // Reward stakers.
-    for i in  0..farm.reward_streams_count {
-        let reward_mint:InterfaceAccount<Mint> = InterfaceAccount::try_from(ctx.remaining_accounts.index((i*3) as usize)).unwrap();
-        let reward_vault:InterfaceAccount<TokenAccount> = InterfaceAccount::try_from(ctx.remaining_accounts.index((i*3 + 1) as usize)).unwrap();
-        let user_reward_token:InterfaceAccount<TokenAccount> = InterfaceAccount::try_from(ctx.remaining_accounts.index((i*3 + 2) as usize)).unwrap();
+      for i in  0..farm.reward_streams_count {
+        let reward_mint:InterfaceAccount<Mint> = InterfaceAccount::try_from(ctx.remaining_accounts.index((i*3) as usize))?;
+        let reward_vault:InterfaceAccount<TokenAccount> = InterfaceAccount::try_from(ctx.remaining_accounts.index((i*3 + 1) as usize))?;
+        let user_reward_token:InterfaceAccount<TokenAccount> = InterfaceAccount::try_from(ctx.remaining_accounts.index((i*3 + 2) as usize))?;
 
         // validate the user reward token.
         require_keys_eq!(user_reward_token.mint,farm.reward_streams[i as usize].reward_mint,ErrorCode::MismatchingAccounts);
@@ -84,7 +86,7 @@ pub fn handle_withdraw<'info>(ctx:Context<'info,Withdraw<'info>>,withdraw_amount
         // validate the reward mint.
         require_keys_eq!(reward_mint.key(),farm.reward_streams[i as usize].reward_mint,ErrorCode::MismatchingAccounts);
 
-        let transfer_amount = user_ledger.reward_infos[i as usize].pending_rewards_x64.checked_shr(64).unwrap() as u64;
+        let transfer_amount = from_x64(user_ledger.reward_infos[i as usize].pending_rewards_x64);
         if transfer_amount > 0 {
             let transfer_ctx = CpiContext::new(reward_mint.to_account_info().owner.key(), TransferChecked {
                 from:reward_vault.to_account_info(),
@@ -95,8 +97,9 @@ pub fn handle_withdraw<'info>(ctx:Context<'info,Withdraw<'info>>,withdraw_amount
 
             transfer_checked(transfer_ctx,transfer_amount,reward_mint.decimals)?;
         }
-
         user_ledger.reward_infos[i as usize].pending_rewards_x64 = user_ledger.reward_infos[i as usize].pending_rewards_x64.checked_sub((u128::from(transfer_amount)).checked_shl(64).unwrap()).unwrap();
+        user_ledger.reward_infos[i as usize].rewards_debt_x64 = user_ledger.reward_infos[i as usize].rewards_debt_x64.checked_sub(farm.reward_streams[i as usize].acc_rewards_per_base_unit_x64.checked_mul(withdraw_amount.into()).unwrap()).unwrap();
+
     }
 
     // Withdraw
@@ -111,8 +114,5 @@ pub fn handle_withdraw<'info>(ctx:Context<'info,Withdraw<'info>>,withdraw_amount
     farm.staked_amount = farm.staked_amount.checked_sub(withdraw_amount).unwrap();
     user_ledger.staked_amount = user_ledger.staked_amount.checked_sub(withdraw_amount).unwrap();
 
-    for i in 0..farm.reward_streams_count {
-        user_ledger.reward_infos[i as usize].rewards_debt_x64 = user_ledger.reward_infos[i as usize].rewards_debt_x64.checked_sub(farm.reward_streams[i as usize].acc_rewards_per_base_unit_x64.checked_mul(withdraw_amount.into()).unwrap()).unwrap();
-    }
     Ok(())
 }

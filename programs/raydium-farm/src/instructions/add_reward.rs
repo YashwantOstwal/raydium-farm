@@ -1,11 +1,12 @@
-use crate::{states::*,RewardStreamArgs,error::ErrorCode};
+use crate::{error::ErrorCode, states::*, utils::{ceil_div_x64, duration}, RewardStreamArgs};
 
 use anchor_lang::prelude::*;
-use anchor_spl::token_interface::{transfer_checked, Mint, TokenInterface, TokenAccount, TransferChecked};
+use anchor_spl::{token_interface::{transfer_checked, Mint, TokenInterface, TokenAccount, TransferChecked},associated_token::{AssociatedToken}};
 
 
 #[derive(Accounts)]
 pub struct AddReward<'info> {
+    #[account(mut)]
     pub authority: Signer<'info>,
 
     pub staking_mint: Box<InterfaceAccount<'info,Mint>>,
@@ -26,7 +27,8 @@ pub struct AddReward<'info> {
     
     
     #[account(
-        mut,
+        init,
+        payer = authority,
         associated_token::authority = farm,
         associated_token::mint = reward_mint,
         associated_token::token_program = reward_mint_program
@@ -42,6 +44,8 @@ pub struct AddReward<'info> {
     pub authority_reward_token: Box<InterfaceAccount<'info,TokenAccount>>,
 
     pub reward_mint_program:Interface<'info,TokenInterface>,
+    pub system_program:Program<'info,System>,
+    pub associated_token_program:Program<'info,AssociatedToken>,
 }
 
 pub fn handle_add_reward(ctx:Context<AddReward>,new_reward_stream:RewardStreamArgs) -> Result<()> {
@@ -59,23 +63,39 @@ pub fn handle_add_reward(ctx:Context<AddReward>,new_reward_stream:RewardStreamAr
         require_keys_neq!(farm.reward_streams[i as usize].reward_mint,reward_mint.key(),ErrorCode::RewardStreamWithRewardMintAlreadyExist)
     }
 
-    let total_rewards = (new_reward_stream.end_time.checked_sub(new_reward_stream.open_time).unwrap() as u128).checked_mul(new_reward_stream.emission_per_second_x64).unwrap();
+    let total_rewards = new_reward_stream.emission_per_second_x64
+        .checked_mul(duration(new_reward_stream.end_time, new_reward_stream.open_time).into())
+        .unwrap();
 
-    let required_reward_vault_balance = total_rewards.checked_shr(64).unwrap() as u64;
-
+    let required_vault_balance = ceil_div_x64(total_rewards);
+    
     // if the vault already has some deposit.
-    if required_reward_vault_balance > reward_vault.amount {
+    if required_vault_balance > reward_vault.amount {
 
-        let transfer_amount = required_reward_vault_balance.checked_sub(reward_vault.amount).unwrap();
+        let transfer_amount = required_vault_balance.checked_sub(reward_vault.amount).unwrap();
 
         require!(transfer_amount <= ctx.accounts.authority_reward_token.amount,ErrorCode::InsufficientBalance);
-        let fund_vault_ctx = CpiContext::new(reward_mint.to_account_info().owner.key(),TransferChecked {
+        let transfer_ixn_ctx = CpiContext::new(ctx.accounts.reward_mint_program.key(),TransferChecked {
             from: ctx.accounts.authority_reward_token.to_account_info(),
             to:reward_vault.to_account_info(),
             mint:reward_mint.to_account_info(),
             authority:ctx.accounts.authority.to_account_info()
         });
-        transfer_checked(fund_vault_ctx,transfer_amount,reward_mint.decimals)?;
+        transfer_checked(transfer_ixn_ctx,transfer_amount,reward_mint.decimals)?;
+    } else if required_vault_balance < reward_vault.amount{
+        let refund_amount = reward_vault.amount.checked_sub(required_vault_balance).unwrap();
+
+        let farm_signer_seeds:&[&[u8]] = &[Farm::STATIC_SEED,farm.staking_mint.as_ref(),&[farm.bump]];
+        let signer_seeds:[&[&[u8]];1] = [&farm_signer_seeds[..]];
+
+        let transfer_ixn_ctx = CpiContext::new(ctx.accounts.reward_mint_program.key(),TransferChecked {
+            from: ctx.accounts.reward_vault.to_account_info(),
+            to:ctx.accounts.authority_reward_token.to_account_info(),
+            mint:reward_mint.to_account_info(),
+            authority:farm.to_account_info()
+        }).with_signer(&signer_seeds);
+        
+        transfer_checked(transfer_ixn_ctx,refund_amount,reward_mint.decimals)?;
     }
 
     let new_farm_idx = farm.reward_streams_count as usize;
@@ -86,7 +106,7 @@ pub fn handle_add_reward(ctx:Context<AddReward>,new_reward_stream:RewardStreamAr
         open_time: new_reward_stream.open_time,
         end_time: new_reward_stream.end_time,
         acc_rewards_per_base_unit_x64: 0,
-        rewards_left_x64:total_rewards,
+        rewards_left_x64: required_vault_balance.checked_shl(64).unwrap() as u128,
         emission_per_second_x64: new_reward_stream.emission_per_second_x64,
     };
     farm.reward_streams_count += 1;

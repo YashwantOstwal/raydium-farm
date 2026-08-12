@@ -39,5 +39,8 @@ pub enum ErrorCode {
     RewardStreamIsRunning,
 
     #[msg("Consider using Set rewards")]
-    RewardStreamWithRewardMintAlreadyExist
+    RewardStreamWithRewardMintAlreadyExist,
+
+    #[msg("Custom error message")]
+    MissingAccounts
 }
