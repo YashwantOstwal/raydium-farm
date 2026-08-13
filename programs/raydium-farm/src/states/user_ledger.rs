@@ -24,10 +24,10 @@ impl UserLedger {
 
     pub fn update(&mut self, updated_farm:&Account<Farm>) -> Result<()>{
     for i in 0..updated_farm.reward_streams_count {
-        let new_rewards = updated_farm.reward_streams[i as usize].acc_rewards_per_base_unit_x64.checked_mul(self.staked_amount.into()).unwrap().checked_sub(self.reward_infos[i as usize].rewards_debt_x64).unwrap();
+        let new_user_rewards = updated_farm.reward_streams[i as usize].acc_rewards_per_base_unit_x64.checked_mul(self.staked_amount.into()).unwrap().checked_sub(self.reward_infos[i as usize].rewards_debt_x64).unwrap();
 
-        self.reward_infos[i as usize].pending_rewards_x64 = self.reward_infos[i as usize].pending_rewards_x64.checked_add(new_rewards).unwrap();
-        self.reward_infos[i as usize].rewards_debt_x64 = self.reward_infos[i as usize].rewards_debt_x64.checked_add(new_rewards).unwrap();
+        self.reward_infos[i as usize].pending_rewards_x64 = self.reward_infos[i as usize].pending_rewards_x64.checked_add(new_user_rewards).unwrap();
+        self.reward_infos[i as usize].rewards_debt_x64 = self.reward_infos[i as usize].rewards_debt_x64.checked_add(new_user_rewards).unwrap();
         
     }
         Ok(())

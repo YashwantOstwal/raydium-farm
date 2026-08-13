@@ -19,7 +19,7 @@ pub struct CreateFarm<'info>{
         seeds = [farm.key().as_ref(),staking_mint.to_account_info().owner.key().as_ref(),staking_mint.key().as_ref()],
         bump,
         seeds::program = associated_token_program
-
+        
         // associated_token::mint = staking_mint,
         // associated_token::authority = farm,
         // associated_token::token_program = staking_mint.to_account_info().owner

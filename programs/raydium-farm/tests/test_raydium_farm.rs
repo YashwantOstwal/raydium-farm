@@ -119,11 +119,17 @@ pub fn test_raydium_farm() {
         let alice_reward_token = CreateAssociatedTokenAccount::new(&mut svm,&alice,&farm_data.reward_streams[i as usize].reward_mint).owner(&alice.pubkey()).token_program_id(&farm_data.reward_streams[i as usize].reward_mint_program).send().unwrap();
         alice_reward_tokens.push(alice_reward_token);
     }
+    let alice_staking_token_before = alice_staking_token;
+
     stake(&mut svm,StakeIxn {
         staker:&alice,staking_mint:&staking_mint,staking_mint_program:&staking_mint_program,staker_staking_token:&alice_staking_ata,reward_tokens:&alice_reward_tokens,deposit_amount:100
     }).unwrap();
+    
+    let alice_staking_token_after: TokenAccount = get_spl_account(&svm, &alice_staking_ata).unwrap();
+    assert_eq!(alice_staking_token_after.amount,alice_staking_token_before.amount - 100);
 
     let farm_data = get_farm(&svm,&farm_pda);
+    // 0 + 100 = 100
     assert_eq!(farm_data.staked_amount,100);
 
     let (alice_ledger_pda,alice_ledger_bump) = derive_user_ledger_pda(&farm_pda,&alice.pubkey());
@@ -133,11 +139,12 @@ pub fn test_raydium_farm() {
     assert_eq!(alice_ledger.staked_amount,100);
     assert_eq!(alice_ledger.bump,alice_ledger_bump);
 
-    let user_ledger_reward_info = &alice_ledger.reward_infos[0 as usize];
-    assert_eq!(user_ledger_reward_info.pending_rewards_x64,0);
+    let alice_reward_info_0 = &alice_ledger.reward_infos[0 as usize];
+    assert_eq!(alice_reward_info_0.pending_rewards_x64,0);
+    assert_eq!(alice_reward_info_0.rewards_debt_x64,0);
+
 
     // Extending the reward_stream_0 duration by 1 second with the same emission rate
-
     set_reward_ixn(&mut svm, SetRewardIxn { creator: &payer, staking_mint: &staking_mint, reward_stream_idx: 0, updated_reward_stream: RewardStreamArgs{
         open_time:block_timestamp,
         end_time:end_time + 1,
@@ -151,43 +158,71 @@ pub fn test_raydium_farm() {
     // we have pre funded the 0.005 tokens in the reward vault already.
     assert_eq!(expected_transfer_amount,10055u64);
 
-    let farm_data_old = farm_data;
-    let farm_old_reward_stream_0 = &farm_data_old.reward_streams[0 as usize];
-    let creator_reward_token_0_account_old = creator_reward_token_0_account;
-    let reward_vault_0_token_old = reward_vault_0_token;
-
+    let farm_data_before = farm_data;
+    let farm_reward_stream_0_before = &farm_data_before.reward_streams[0 as usize];
+    let creator_reward_token_0_account_before = creator_reward_token_0_account;
+    let reward_vault_0_token_before = reward_vault_0_token;
 
     let farm_data = get_farm(&svm,&farm_pda);
     let farm_reward_stream_0 = &farm_data.reward_streams[0 as usize];
     let creator_reward_token_0_account: TokenAccount = get_spl_account(&svm, &creator_reward_token_0).unwrap();
     let reward_vault_0: TokenAccount = get_spl_account(&svm, &reward_vault_0).unwrap();
 
-    assert_eq!(farm_reward_stream_0.rewards_left_x64, farm_old_reward_stream_0.rewards_left_x64.checked_add((expected_transfer_amount as u128).checked_shl(64).unwrap()).unwrap());
+    assert_eq!(farm_reward_stream_0.rewards_left_x64, farm_reward_stream_0_before.rewards_left_x64.checked_add((expected_transfer_amount as u128).checked_shl(64).unwrap()).unwrap());
 
     // 100.555 * 4 = 402.22 tokens.
-    assert_eq!(farm_reward_stream_0.rewards_left_x64,40222u128.checked_shl(64).unwrap());
+    assert_eq!(farm_reward_stream_0.rewards_left_x64,40222u128.checked_shl(64).unwrap());   
     assert_eq!(farm_reward_stream_0.end_time, end_time + 1);
     assert_eq!(farm_reward_stream_0.emission_per_second_x64, emission_per_second_x64);
 
+
     // Creator reward token amount deducted by transfer amount.
-    assert_eq!(creator_reward_token_0_account.amount, creator_reward_token_0_account_old.amount.checked_sub(expected_transfer_amount).unwrap());
+    assert_eq!(creator_reward_token_0_account.amount, creator_reward_token_0_account_before.amount.checked_sub(expected_transfer_amount).unwrap());
 
     // Reward vault amount incremented by transfer amount.
-    assert_eq!(reward_vault_0.amount, reward_vault_0_token_old.amount.checked_add(expected_transfer_amount).unwrap());
+    assert_eq!(reward_vault_0.amount, reward_vault_0_token_before.amount.checked_add(expected_transfer_amount).unwrap());
 
-    // let mut clock = svm.get_sysvar::<Clock>();
-    // clock.unix_timestamp = clock.unix_timestamp.checked_add(1).unwrap();
-    // svm.set_sysvar(&clock);     
+    let mut clock = svm.get_sysvar::<Clock>();
+    clock.unix_timestamp = clock.unix_timestamp.checked_add(1).unwrap();
+    svm.set_sysvar(&clock);     
 
-    // let clock = svm.get_sysvar::<Clock>();
-    // assert_eq!(clock.unix_timestamp,1);
+    let clock = svm.get_sysvar::<Clock>();
+    assert_eq!(clock.unix_timestamp,1);
 
+    let farm_data_before = farm_data;
+    let alice_ledger_data_before = alice_ledger;
+    let alice_reward_token_0_before:TokenAccount = get_spl_account(&svm, &alice_reward_tokens[0 as usize]).unwrap();
 
-    // harvest(&mut svm,HarvestIxn {
-    //     staker:&alice,
-    //     staking_mint:&staking_mint,
-    //     reward_tokens:&alice_reward_tokens
-    // }).unwrap();
+    //  Current state t = 0 : 
+    //  emission_per_second_x64 for the 1st reward stream = 100.555 * 2^64 (2 decimals reward token),
+    //  accumulated_rewards_per_base_unit_x64 for the 1st reward stream = 0 * 2^64.
+    //  rewards_left_x64[0] = 402.22 * 2^64 . (reward_vault[0] * 2^64 >= rewards_left_x64 )
+    //  Alice's balance of reward token of the 1st reward stream = 0,
+    //  Alice's pending_rewards_x64 of the 1st reward stream = 0 * 2^64 (Nothing is owed by the farm as the deposition happened at this exact instant),
+    //  Alice's rewards_debt_x64 of the 1st reward stream = 0 * 2^64 (No rewards is missed or collected)
+    
+    
+    // 6 Exhaustive critical checks:
+    // t = 1 with updated Farm and Alice's User ledger via harvest ixn.
+
+    //  new_emission[0] = (emission_per_second_x64[0] * duration_since_last_update) = 100.555 * 2^64 * 1
+    //  1) new_accumulated_rewards_x64[0]= accumulated_rewards_x64[0] +  new_emission[0] / total_staked_amount = 0 + (100.555 * 2^64) / 100) = 1.00555 ^ 2^64.
+    //  2) new rewards_left[0] = rewards_left[0] - new_emission[0] = 402.22 * 2^64 - 100.555 * 2^64 = 301.665 * 2^64
+    //  new_alice_rewards = new_accumulated_rewards_x64[0] * alice.staked_amount_before - rewards_debt_x64_before[0] = 1.00555 * 2^64 * 100 - 0 = 100.555 (100% of the emitted tokens of this second is owed to Alice as Alice is the only staker).
+    //  3) Alice's harvested rewards = Alice's pending_rewards_x64[0] + new_alice_rewards = 0 + 100.555 * 2^64 out of which 100.55 is transfered to the token account.
+    //  4) While the pending 0.005 (Lesser than denomination that can be transfered) is added to Alice's pending_rewards_x64[0] of the 1st reward stream = 0 + 0.005 * 2^64 = 0.005 * 2^64 (The last 64 bits holds the fractional value, follows Q64.64 fixed point precision notation).
+    //  5) new_reward_vault_balance[0] = rewards_vault_balance[0] - Amount transfered to staker(s) = 402.22 - 100.55 = 301.67 (reward_vault[0] * 2^64 >= rewards_left_x64) but out of which 0.005 is owed to alice and locked, If Alice held her stake for one more second she will receive it. Will see later. 
+    //  6) Alice's rewards_debt_x64[0] = Alice's rewards_debts_x64_old[0] + new_alice_rewards = 0 + 100.555 ^ ^64 = 100.555 * 2^64
+
+    harvest(&mut svm,HarvestIxn {
+        staker:&alice,
+        staking_mint:&staking_mint,
+        reward_tokens:&alice_reward_tokens
+    }).unwrap();
+
+    let farm_data = get_farm(&svm, &farm_pda);
+    let alice_ledger_data = get_user_ledger(&svm, &alice_ledger_pda);
+    let alice_reward_token_0_before:TokenAccount = get_spl_account(&svm, &alice_reward_tokens[0 as usize]).unwrap();
 
 
 }
