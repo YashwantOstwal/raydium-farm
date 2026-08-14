@@ -59,7 +59,7 @@ pub fn test_raydium_farm() {
     let farm_seeds: &[&[u8]] = &[raydium_farm::Farm::STATIC_SEED,&staking_mint.to_bytes()];
     let (farm_pda,farm_bump) = Pubkey::find_program_address(farm_seeds, &raydium_farm_id);
 
-    let reward_0_mint = CreateMint::new(&mut svm, &yash).authority(&yash.pubkey()).decimals(0).token_program_id(&token::ID).send().unwrap();
+    let reward_0_mint = CreateMint::new(&mut svm, &yash).authority(&yash.pubkey()).decimals(2).token_program_id(&token::ID).send().unwrap();
 
     let yash_reward_0_token = CreateAssociatedTokenAccount::new(&mut svm,&yash,&reward_0_mint).owner(&yash.pubkey()).send().unwrap();
     MintTo::new(&mut svm,&yash,&reward_0_mint,&yash_reward_0_token, 100000).owner(&yash).send().unwrap();
@@ -129,7 +129,7 @@ pub fn test_raydium_farm() {
 
     let alice_staking_token_before = alice_staking_token;
 
-
+    let mut total_staked_amount = 0;
     // Alice staking 100 tokens.
     stake(&mut svm,StakeIxn {
         staker:&alice,staking_mint:&staking_mint,staking_mint_program:&staking_mint_program,staker_staking_token:&alice_staking_ata,reward_tokens:&alice_reward_tokens,deposit_amount:100
@@ -138,8 +138,6 @@ pub fn test_raydium_farm() {
     let alice_staking_token_after: TokenAccount = get_spl_account(&svm, &alice_staking_ata).unwrap();
     assert_eq!(alice_staking_token_after.amount,alice_staking_token_before.amount - 100);
 
-    let farm_data_after = get_farm(&svm,&farm_pda);
-    assert_eq!(farm_data_after.staked_amount,100); 
 
     let (alice_ledger_pda,alice_ledger_bump) = derive_user_ledger_pda(&farm_pda,&alice.pubkey());
     let alice_ledger_after = get_user_ledger(&svm,&alice_ledger_pda);
@@ -147,11 +145,18 @@ pub fn test_raydium_farm() {
     // Verifying the ledger state.
     assert_eq!(alice_ledger_after.user,alice.pubkey());
     assert_eq!(alice_ledger_after.staked_amount,100);
+
+
     assert_eq!(alice_ledger_after.bump,alice_ledger_bump);
 
     let alice_reward_info_0 = &alice_ledger_after.reward_infos[0 as usize];
     assert_eq!(alice_reward_info_0.pending_rewards_x64,0);
     assert_eq!(alice_reward_info_0.rewards_debt_x64,0);
+
+
+    let farm_data_after = get_farm(&svm,&farm_pda);
+    assert_eq!(farm_data_after.staked_amount,100); 
+    total_staked_amount +=100;
 
     let farm_data_before = farm_data_after;
     let farm_reward_stream_0_before = &farm_data_before.reward_streams[0 as usize];
@@ -172,7 +177,7 @@ pub fn test_raydium_farm() {
     assert_eq!(expected_transfer_amount,10055u64); // Prefunded the 0.005 tokens out of 100.555 to the vault.
 
     let farm_data_after = get_farm(&svm,&farm_pda);
-    let farm_reward_stream_0_after = &farm_data_after.reward_streams[0 as usize];
+    let farm_reward_stream_0_after = farm_data_after.reward_streams[0 as usize];
     
     assert_eq!(farm_reward_stream_0_after.rewards_left_x64, farm_reward_stream_0_before.rewards_left_x64.checked_add((expected_transfer_amount as u128).checked_shl(64).unwrap()).unwrap());
     assert_eq!(farm_reward_stream_0_after.rewards_left_x64,40222u128.checked_shl(64).unwrap()); // 100.555 * 4 = 402.22 tokens.
@@ -196,6 +201,7 @@ pub fn test_raydium_farm() {
     //  Alice's pending_rewards_x64[0] of the 1st reward stream = 0 * 2^64 (Nothing is owed by the farm as the deposition happened at this exact instant),
     //  Alice's rewards_debt_x64[0] of the 1st reward stream = 0 * 2^64 (No rewards is missed or collected)
     
+    let farm_reward_stream_0_before = farm_reward_stream_0_after;
     let farm_data_before = farm_data_after;
     let alice_ledger_data_before = alice_ledger_after;
     let alice_reward_0_token_before:TokenAccount = get_spl_account(&svm, &alice_reward_tokens[0 as usize]).unwrap();
@@ -213,23 +219,40 @@ pub fn test_raydium_farm() {
 
     // 6 Exhaustive critical checks:
     //  new_emission_x64[0] = (emission_per_second_x64[0] * duration(now,farm_before.last_update_time)) = 100.555 * 2^64 * 1
-    //  1) new_acc_rewards_per_base_unit_x64[0]= acc_rewards_per_base_unit_x64[0] + new_emission_x64[0] / total_staked_amount = 0 * 2^64 + ((100.555 * 2^64) / 100) = 1.00555 ^ 2^64.
+    //  1) new_acc_rewards_per_base_unit_x64[0]= acc_rewards_per_base_unit_x64[0] + new_emission_x64[0] / total_staked_amount = 0 * 2^64 + ((100.555 * 2^64) / 100) = 1.00555 * 2^64.
     //  2) new rewards_left_x64[0] = rewards_left_x64[0] - new_emission_x64[0] = 402.22 * 2^64 - 100.555 * 2^64 = 301.665 * 2^64
-    //  new_alice_rewards = new_acc_rewards_per_base_unit_x64[0] * alice.staked_amount_before - rewards_debt_x64_before[0] = 1.00555 * 2^64 * 100 - 0 = 100.555 ^ 2^64 (100% of the emitted tokens of this second is owed to Alice as She is the only staker).
+    //  new_alice_rewards = new_acc_rewards_per_base_unit_x64[0] * alice.staked_amount_before - rewards_debt_x64_before[0] = 1.00555 * 2^64 * 100 - 0 = 100.555 * 2^64 (100% of the emitted tokens of this second is owed to Alice as She is the only staker).
     //  3) Alice's harvested rewards = Alice's pending_rewards_x64[0] + new_alice_rewards = 0 + 100.555 * 2^64 = 100.555 * 2^64 out of which >>64 = 100.55 (note: if I do *_x64 >>64, then I will only retain the 2 decimal places for a 2 decimal mint, i.e, 100.555 >>64 = 10055u64) is transfered to the token account.
     //  4) While the amount to be transferred - Amount transferred = 0.005 (Lesser than denomination that can be transfered) is stored in Alice's pending_rewards_x64[0] = 0.005 * 2^64 (The last 64 bits holds the fractional value, follows Q64.64 fixed point precision notation).
     //  5) new_reward_vault_balance[0] = rewards_vault_balance[0] - Amount transfered to staker(s) = 402.22 - 100.55 = 301.67 (reward_vault[0] * 2^64 >= rewards_left_x64) but out of which 0.005 is owed to Alice and locked, If Alice held her stake for one more second she will receive it. Will see this in next test. 
     //  6) Alice's rewards_debt_x64[0] = Alice's rewards_debts_x64_old[0] + new_alice_rewards = 0 + 100.555 * 2^64 = 100.555 * 2^64 (This rewards_debt_x64 represents the missed or collected rewards of the respective stream)
 
     let farm_data_after = get_farm(&svm, &farm_pda);
+    let farm_reward_stream_0_after = farm_data_after.reward_streams[0 as usize];
     let alice_ledger_data_after = get_user_ledger(&svm, &alice_ledger_pda);
-    let alice_reward_0_token_after:TokenAccount = get_spl_account(&svm, &alice_reward_tokens[0 as usize]).unwrap();
+    let alice_ledger_reward_stream_0_after = alice_ledger_data_after.reward_infos[0 as usize];
+    let alice_reward_0_token_after:TokenAccount = get_spl_account(&svm, &alice_reward_tokens[0 as usize]).unwrap(); 
+
+    let duration = clock.unix_timestamp.checked_sub(farm_data_before.last_updated_time.max(farm_reward_stream_0_before.open_time)).unwrap() as u128;
+    let new_emissions = duration.checked_mul(emission_per_second_x64).unwrap();
+    let expected_acc_rewards_per_base_unit_x64 = (new_emissions).checked_div(total_staked_amount).unwrap();
+    assert_eq!(farm_reward_stream_0_after.acc_rewards_per_base_unit_x64,expected_acc_rewards_per_base_unit_x64);
+    
+    let expected_rewards_left_x64 = farm_reward_stream_0_before.rewards_left_x64.checked_sub(new_emissions).unwrap();
+    assert_eq!(farm_reward_stream_0_after.rewards_left_x64,expected_rewards_left_x64);
+
+    assert_eq!(farm_reward_stream_0_after.acc_rewards_per_base_unit_x64,100555u128.checked_shl(64).unwrap().checked_div(1000).unwrap());    // - (1)
+    assert_eq!(farm_reward_stream_0_after.rewards_left_x64,301665u128.checked_shl(64).unwrap().checked_div(10).unwrap());    // - (2)
+    assert_eq!(alice_reward_0_token_after.amount,alice_reward_0_token_before.amount.checked_add(10055).unwrap());    // - (3)
+    assert_eq!(alice_ledger_reward_stream_0_after.pending_rewards_x64,100555u128.checked_shl(64).unwrap().checked_div(10).unwrap());    // - (5)
+
 
 
     time_travel(&mut svm,1);
     let clock = svm.get_sysvar::<Clock>();
     assert_eq!(clock.unix_timestamp,2);
 
+    svm.expire_blockhash();
     harvest(&mut svm,HarvestIxn {
         staker:&alice,
         staking_mint:&staking_mint,
@@ -347,5 +370,15 @@ pub fn test_raydium_farm() {
     //  4) Bob's pending_rewards_x64[1] = 0 * 2^64. 
     //  6) Bob's rewards_debt_x64[1] = Bob's rewards_debts_x64_old[1] + new_bob_rewards - withdraw_amount * new_acc_rewards_per_base_unit_x64 = 0 + 1.000000 * 2^64 - 80 * 0.0125 * 2^64 = 0 * 2^64.
   
+    time_travel(&mut svm,2);
+    let clock = svm.get_sysvar::<Clock>();
+    assert_eq!(clock.unix_timestamp,8);
 
+    // t = 8, Restarting the reward stream 2 for a second with emission rate to be 1.500000 tokens / second such that the total_rewards_x64 < rewards_left_x64,
+    // the farm refunds the excess to the creator reward token from its vault.
+    time_travel(&mut svm,1);
+    let clock = svm.get_sysvar::<Clock>();
+    assert_eq!(clock.unix_timestamp,9);
+    // At t = 9
+    // All the streams are ended and Every staker have claimed their latest rewards so we can safely withdraw the reward funds from the vault.
 }

@@ -51,7 +51,7 @@ impl Farm {
                        let new_emission = duration.checked_mul(self.reward_streams[i as usize].emission_per_second_x64).unwrap();
                        
                        self.reward_streams[i as usize].rewards_left_x64 = self.reward_streams[i as usize].rewards_left_x64.checked_sub(new_emission).unwrap();
-                       self.reward_streams[i as usize].acc_rewards_per_base_unit_x64 = self.reward_streams[i as usize].acc_rewards_per_base_unit_x64.checked_add(new_emission.checked_div(self.staked_amount.into()).unwrap()).unwrap();
+                       self.reward_streams[i as usize].acc_rewards_per_base_unit_x64 = self.reward_streams[i as usize].acc_rewards_per_base_unit_x64.checked_add(new_emission.checked_div(self.staked_amount as u128).unwrap()).unwrap();
                    }
                 }else {
                    self.reward_streams[i as usize].status = RewardStreamStatus::Ended;

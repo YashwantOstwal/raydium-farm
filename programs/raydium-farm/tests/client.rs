@@ -377,10 +377,12 @@ pub fn set_reward_ixn(svm:&mut LiteSVM,SetRewardIxn {
     svm.send_transaction(tx)
 }
 
-pub fn time_travel(svm:&mut LiteSVM,by:i64) {
+pub fn time_travel(svm:&mut LiteSVM,jump_by:i64) {
     let mut clock = svm.get_sysvar::<Clock>();
-    clock.unix_timestamp = clock.unix_timestamp.checked_add(by).unwrap();
+    clock.unix_timestamp = clock.unix_timestamp.checked_add(jump_by).unwrap();
     svm.set_sysvar(&clock);
+}
 
+pub fn verify_farm_before_after(farm_before:&Farm,farm_after:&Farm) {
     
 }
