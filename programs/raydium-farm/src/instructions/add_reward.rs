@@ -68,35 +68,15 @@ pub fn handle_add_reward(ctx:Context<AddReward>,new_reward_stream:RewardStreamAr
         .unwrap();
 
     let required_vault_balance = ceil_div_x64(total_rewards);
-    
-    // if the vault already has some deposit.
-    if required_vault_balance > reward_vault.amount {
 
-        let transfer_amount = required_vault_balance.checked_sub(reward_vault.amount).unwrap();
-
-        require!(transfer_amount <= ctx.accounts.authority_reward_token.amount,ErrorCode::InsufficientBalance);
-        let transfer_ixn_ctx = CpiContext::new(ctx.accounts.reward_mint_program.key(),TransferChecked {
-            from: ctx.accounts.authority_reward_token.to_account_info(),
-            to:reward_vault.to_account_info(),
-            mint:reward_mint.to_account_info(),
-            authority:ctx.accounts.authority.to_account_info()
-        });
-        transfer_checked(transfer_ixn_ctx,transfer_amount,reward_mint.decimals)?;
-    } else if required_vault_balance < reward_vault.amount{
-        let refund_amount = reward_vault.amount.checked_sub(required_vault_balance).unwrap();
-
-        let farm_signer_seeds:&[&[u8]] = &[Farm::STATIC_SEED,farm.staking_mint.as_ref(),&[farm.bump]];
-        let signer_seeds:[&[&[u8]];1] = [&farm_signer_seeds[..]];
-
-        let transfer_ixn_ctx = CpiContext::new(ctx.accounts.reward_mint_program.key(),TransferChecked {
-            from: ctx.accounts.reward_vault.to_account_info(),
-            to:ctx.accounts.authority_reward_token.to_account_info(),
-            mint:reward_mint.to_account_info(),
-            authority:farm.to_account_info()
-        }).with_signer(&signer_seeds);
-        
-        transfer_checked(transfer_ixn_ctx,refund_amount,reward_mint.decimals)?;
-    }
+    require!(required_vault_balance <= ctx.accounts.authority_reward_token.amount,ErrorCode::InsufficientBalance);
+    let transfer_ixn_ctx = CpiContext::new(ctx.accounts.reward_mint_program.key(),TransferChecked {
+        from: ctx.accounts.authority_reward_token.to_account_info(),
+        to:reward_vault.to_account_info(),
+        mint:reward_mint.to_account_info(),
+        authority:ctx.accounts.authority.to_account_info()
+    });
+    transfer_checked(transfer_ixn_ctx,required_vault_balance,reward_mint.decimals)?;
 
     let new_farm_idx = farm.reward_streams_count as usize;
     farm.reward_streams[new_farm_idx] = RewardStream {
@@ -106,7 +86,7 @@ pub fn handle_add_reward(ctx:Context<AddReward>,new_reward_stream:RewardStreamAr
         open_time: new_reward_stream.open_time,
         end_time: new_reward_stream.end_time,
         acc_rewards_per_base_unit_x64: 0,
-        rewards_left_x64: required_vault_balance.checked_shl(64).unwrap() as u128,
+        rewards_left_x64: (required_vault_balance as u128).checked_shl(64).unwrap(),
         emission_per_second_x64: new_reward_stream.emission_per_second_x64,
     };
     farm.reward_streams_count += 1;

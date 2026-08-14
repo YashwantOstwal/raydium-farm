@@ -13,7 +13,7 @@ pub struct CreateFarm<'info>{
 
     pub staking_mint:InterfaceAccount<'info,Mint>,
 
-    /// CHECK: initialised in the instruction to reduce redudant account from the context "staking_mint_program", seeds order referred from the official repo of AssociatedToken https://github.com/solana-program/associated-token-account/blob/main/interface/src/address.rs, 
+    /// CHECK: created in the instruction to reduce redudant account from the context "staking_mint_program", seeds order referred from the official repo of AssociatedToken https://github.com/solana-program/associated-token-account/blob/main/interface/src/address.rs, 
     #[account(
         mut,
         seeds = [farm.key().as_ref(),staking_mint.to_account_info().owner.key().as_ref(),staking_mint.key().as_ref()],

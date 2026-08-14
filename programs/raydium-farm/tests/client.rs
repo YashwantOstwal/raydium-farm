@@ -16,7 +16,6 @@ use solana_sdk::{
 
 pub struct CreateFarmRewardStreams<'a> {
     pub reward_mint:&'a Pubkey,
-    pub reward_mint_program:&'a Pubkey,
     pub open_time:i64,
     pub end_time:i64,
     pub emission_per_second_x64: u128
@@ -64,14 +63,15 @@ pub fn create_farm(svm: &mut LiteSVM,CreateFarmIxn {creator,staking_mint,reward_
 
     // Remaining accounts.
     for i in 0..5  {
-        if let Some(CreateFarmRewardStreams {reward_mint,reward_mint_program,open_time,end_time,emission_per_second_x64}) = reward_streams[i as usize] {
+        if let Some(CreateFarmRewardStreams {reward_mint,open_time,end_time,emission_per_second_x64}) = reward_streams[i as usize] {
 
             accounts.push(AccountMeta::new_readonly(*reward_mint,false));
 
-            let reward_vault = get_associated_token_address_with_program_id(&farm_pda, reward_mint, reward_mint_program);
+            let reward_mint_program = svm.get_account(reward_mint).unwrap().owner;
+            let reward_vault = get_associated_token_address_with_program_id(&farm_pda, reward_mint, &reward_mint_program);
             accounts.push(AccountMeta::new(reward_vault,false));
     
-            let creator_reward_token = get_associated_token_address_with_program_id(&creator.pubkey(), reward_mint, reward_mint_program);
+            let creator_reward_token = get_associated_token_address_with_program_id(&creator.pubkey(), reward_mint, &reward_mint_program);
             accounts.push(AccountMeta::new(creator_reward_token,false));
 
             
@@ -375,4 +375,12 @@ pub fn set_reward_ixn(svm:&mut LiteSVM,SetRewardIxn {
     let tx = Transaction::new_signed_with_payer(&[set_reward_ixn], Some(&creator.pubkey()), &[&creator], svm.latest_blockhash());
 
     svm.send_transaction(tx)
+}
+
+pub fn time_travel(svm:&mut LiteSVM,by:i64) {
+    let mut clock = svm.get_sysvar::<Clock>();
+    clock.unix_timestamp = clock.unix_timestamp.checked_add(by).unwrap();
+    svm.set_sysvar(&clock);
+
+    
 }
