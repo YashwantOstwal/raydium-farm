@@ -14,7 +14,7 @@ use solana_sdk::{
 
 };
 
-pub struct CreateFarmRewardStreams<'a> {
+pub struct RewardStream<'a> {
     pub reward_mint:&'a Pubkey,
     pub open_time:i64,
     pub end_time:i64,
@@ -24,7 +24,7 @@ pub struct CreateFarmRewardStreams<'a> {
 pub struct CreateFarmIxn<'a> {
     pub creator:&'a Keypair,
     pub staking_mint:&'a Pubkey,
-    pub reward_streams: [Option<CreateFarmRewardStreams<'a>>;5]
+    pub reward_streams: [Option<RewardStream<'a>>;5]
 }
 const RAYDIUM_PROGRAM_ID: Pubkey = raydium_farm::ID_CONST;
 // read_keypair_file("/home/yashwant/Desktop/web3/raydium-farm/target/deploy/raydium_farm-keypair.json").unwrap().pubkey();
@@ -63,7 +63,7 @@ pub fn create_farm(svm: &mut LiteSVM,CreateFarmIxn {creator,staking_mint,reward_
 
     // Remaining accounts.
     for i in 0..5  {
-        if let Some(CreateFarmRewardStreams {reward_mint,open_time,end_time,emission_per_second_x64}) = reward_streams[i as usize] {
+        if let Some(RewardStream {reward_mint,open_time,end_time,emission_per_second_x64}) = reward_streams[i as usize] {
 
             accounts.push(AccountMeta::new_readonly(*reward_mint,false));
 
@@ -124,7 +124,6 @@ pub fn verify_updated_farm_status(svm:&LiteSVM,farm_data:&Farm,reward_idx:u8) {
 pub struct StakeIxn<'a>{
     pub staker:&'a Keypair,
     pub staking_mint:&'a Pubkey,
-    pub staking_mint_program:&'a Pubkey,
     pub staker_staking_token:&'a Pubkey,
     pub reward_tokens:&'a Vec<Pubkey>,
     pub deposit_amount:u64
@@ -143,7 +142,7 @@ pub fn derive_user_ledger_pda(farm_pda:&Pubkey,user:&Pubkey) -> (Pubkey,u8) {
     Pubkey::find_program_address(user_ledger_seeds, &RAYDIUM_PROGRAM_ID)
 }
 pub fn stake(svm:&mut LiteSVM, StakeIxn {
-    staker,staking_mint,staking_mint_program,staker_staking_token,reward_tokens,deposit_amount
+    staker,staking_mint,staker_staking_token,reward_tokens,deposit_amount
 }:StakeIxn)
  -> std::result::Result<TransactionMetadata,FailedTransactionMetadata>
   {
@@ -161,7 +160,10 @@ pub fn stake(svm:&mut LiteSVM, StakeIxn {
     let farm_pda = derive_farm_pda(&staking_mint);
     let (user_ledger,_) = derive_user_ledger_pda(&farm_pda,&staker.pubkey());
 
-    let staking_token_vault = get_associated_token_address_with_program_id(&farm_pda, staking_mint, staking_mint_program);
+    let staking_mint_account = svm.get_account(&staking_mint).unwrap();
+    let staking_mint_program = staking_mint_account.owner;
+    
+    let staking_token_vault = get_associated_token_address_with_program_id(&farm_pda, staking_mint, &staking_mint_program);
     let mut deposit_ixn_accounts = vec![
         AccountMeta::new(staker.pubkey(),true),
         AccountMeta::new_readonly(*staking_mint, false),
@@ -202,13 +204,12 @@ pub fn stake(svm:&mut LiteSVM, StakeIxn {
 pub struct UnstakeIxn<'a>{
     pub staker:&'a Keypair,
     pub staking_mint:&'a Pubkey,
-    pub staking_mint_program:&'a Pubkey,
     pub staker_staking_token:&'a Pubkey,
     pub reward_tokens:&'a Vec<Pubkey>,
     pub withdraw_amount:u64
 }
 pub fn unstake(svm:&mut LiteSVM, UnstakeIxn {
-    staker,staking_mint,staking_mint_program,staker_staking_token,reward_tokens,withdraw_amount
+    staker,staking_mint,staker_staking_token,reward_tokens,withdraw_amount
 }:UnstakeIxn)
  -> std::result::Result<TransactionMetadata,FailedTransactionMetadata>
   {
@@ -226,7 +227,10 @@ pub fn unstake(svm:&mut LiteSVM, UnstakeIxn {
     let farm_pda = derive_farm_pda(&staking_mint);
     let (user_ledger,_) = derive_user_ledger_pda(&farm_pda,&staker.pubkey());
 
-    let staking_token_vault = get_associated_token_address_with_program_id(&farm_pda, staking_mint, staking_mint_program);
+    let staking_mint_account = svm.get_account(&staking_mint).unwrap();
+    let staking_mint_program = staking_mint_account.owner;
+
+    let staking_token_vault = get_associated_token_address_with_program_id(&farm_pda, staking_mint, &staking_mint_program);
     let mut withdraw_ixn_accounts = vec![
         AccountMeta::new_readonly(staker.pubkey(),true),
         AccountMeta::new_readonly(*staking_mint, false),
@@ -383,6 +387,56 @@ pub fn time_travel(svm:&mut LiteSVM,jump_by:i64) {
     svm.set_sysvar(&clock);
 }
 
-pub fn verify_farm_before_after(farm_before:&Farm,farm_after:&Farm) {
+pub struct AddRewardIxn<'a> {
+    pub creator:&'a Keypair,
+    pub staking_mint:&'a Pubkey,
+    pub reward_info:RewardStream<'a>
+}
+pub fn add_reward(svm:&mut LiteSVM,AddRewardIxn {
+    reward_info: RewardStream { reward_mint, open_time, end_time, emission_per_second_x64 },
+    creator,
+    staking_mint,
+}:AddRewardIxn) -> std::result::Result<TransactionMetadata,FailedTransactionMetadata> {
+    
+    let mut hasher = Sha256::new();
+    hasher.update("global:add_reward");
+    let hash = hasher.finalize();
+    
+    let mut add_reward_ixn_discriminator = [0u8;8];
+    add_reward_ixn_discriminator.copy_from_slice(&hash[..8]);
+
+    let mut add_reward_ixn_data = add_reward_ixn_discriminator.to_vec();
+
+    add_reward_ixn_data.extend_from_slice(&open_time.to_le_bytes());
+    add_reward_ixn_data.extend_from_slice(&end_time.to_le_bytes());
+    add_reward_ixn_data.extend_from_slice(&emission_per_second_x64.to_le_bytes());
+
+    let farm_pda = derive_farm_pda(&staking_mint);
+
+    let reward_mint_info = svm.get_account(reward_mint).unwrap();
+    let reward_mint_program = reward_mint_info.owner;
+    let reward_vault = get_associated_token_address_with_program_id(&farm_pda, &reward_mint,&reward_mint_program );
+    let creator_reward_token = get_associated_token_address_with_program_id(&creator.pubkey(), &reward_mint,&reward_mint_program );
+
+    let add_reward_ctx = vec![
+        AccountMeta::new(creator.pubkey(),true),
+        AccountMeta::new_readonly(*staking_mint, false),
+        AccountMeta::new(farm_pda, false),
+        AccountMeta::new_readonly(*reward_mint, false),
+        AccountMeta::new(reward_vault,false),
+        AccountMeta::new(creator_reward_token,false),
+        AccountMeta::new_readonly(reward_mint_program,false),
+        AccountMeta::new_readonly(system_program::ID,false),
+        AccountMeta::new_readonly(associated_token::ID,false),
+    ];
+
+    let add_reward_ixn = Instruction {
+        program_id:RAYDIUM_PROGRAM_ID,
+        accounts:add_reward_ctx,
+        data:add_reward_ixn_data,
+    };
+
+    let txn = Transaction::new_signed_with_payer(&[add_reward_ixn], Some(&creator.pubkey()), &[&creator], svm.latest_blockhash());
+    svm.send_transaction(txn)
     
 }

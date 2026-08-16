@@ -63,12 +63,11 @@ pub fn handle_add_reward(ctx:Context<AddReward>,new_reward_stream:RewardStreamAr
         require_keys_neq!(farm.reward_streams[i as usize].reward_mint,reward_mint.key(),ErrorCode::RewardStreamWithRewardMintAlreadyExist)
     }
 
-    let total_rewards = new_reward_stream.emission_per_second_x64
+    let total_rewards_x64 = new_reward_stream.emission_per_second_x64
         .checked_mul(duration(new_reward_stream.end_time, new_reward_stream.open_time).into())
         .unwrap();
 
-    let required_vault_balance = ceil_div_x64(total_rewards);
-
+    let required_vault_balance = ceil_div_x64(total_rewards_x64);
     require!(required_vault_balance <= ctx.accounts.authority_reward_token.amount,ErrorCode::InsufficientBalance);
     let transfer_ixn_ctx = CpiContext::new(ctx.accounts.reward_mint_program.key(),TransferChecked {
         from: ctx.accounts.authority_reward_token.to_account_info(),
