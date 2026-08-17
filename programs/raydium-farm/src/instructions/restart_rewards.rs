@@ -60,18 +60,15 @@ pub fn handle_restart_rewards(ctx:Context<RestartRewards>,reward_stream_idx:u8,r
     let rewards_left_x64 = farm.reward_streams[reward_stream_idx as usize].rewards_left_x64;
     let new_rewards_left_x64 = if total_rewards_x64 > rewards_left_x64 {
         let transfer_amount = ceil_div_x64(total_rewards_x64.checked_sub(rewards_left_x64).unwrap());
-        if  transfer_amount > 0 {
-            require!(transfer_amount <= ctx.accounts.authority_reward_token.amount,ErrorCode::InsufficientBalance);
-    
-            let transfer_ixn_ctx = CpiContext::new(ctx.accounts.reward_mint_program.key(), TransferChecked {
-                from:ctx.accounts.authority_reward_token.to_account_info(),
-                to:ctx.accounts.reward_vault.to_account_info(),
-                mint:ctx.accounts.reward_mint.to_account_info(),
-                authority:ctx.accounts.authority.to_account_info()
-            });
-            transfer_checked(transfer_ixn_ctx, transfer_amount, ctx.accounts.reward_mint.decimals)?;
+        require!(transfer_amount <= ctx.accounts.authority_reward_token.amount,ErrorCode::InsufficientBalance);
 
-        }
+        let transfer_ixn_ctx = CpiContext::new(ctx.accounts.reward_mint_program.key(), TransferChecked {
+            from:ctx.accounts.authority_reward_token.to_account_info(),
+            to:ctx.accounts.reward_vault.to_account_info(),
+            mint:ctx.accounts.reward_mint.to_account_info(),
+            authority:ctx.accounts.authority.to_account_info()
+        });
+        transfer_checked(transfer_ixn_ctx, transfer_amount, ctx.accounts.reward_mint.decimals)?;
         let transfer_amount_x64 = to_x64(transfer_amount);
         rewards_left_x64.checked_add(transfer_amount_x64).unwrap()
     } else if total_rewards_x64 < rewards_left_x64 {

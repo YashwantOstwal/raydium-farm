@@ -440,3 +440,56 @@ pub fn add_reward(svm:&mut LiteSVM,AddRewardIxn {
     svm.send_transaction(txn)
     
 }
+
+
+
+pub struct RestartRewardsIxn<'a> {
+    pub creator:&'a Keypair,
+    pub staking_mint:&'a Pubkey,
+    pub reward_stream_idx:u8,
+    pub reward_stream:RewardStreamArgs
+}
+pub fn restart_rewards(svm:&mut LiteSVM,RestartRewardsIxn {
+    creator,staking_mint,reward_stream_idx,reward_stream
+}:RestartRewardsIxn) -> std::result::Result<TransactionMetadata,FailedTransactionMetadata> {
+
+    let mut hasher = Sha256::new();
+    hasher.update("global:restart_rewards");
+    let hash = hasher.finalize();
+
+    let mut restart_rewards_ixn_discriminator = [0u8;8];
+    restart_rewards_ixn_discriminator.copy_from_slice(&hash[..8]);
+    let mut restart_rewards_ixn_data = restart_rewards_ixn_discriminator.to_vec();
+
+    restart_rewards_ixn_data.extend_from_slice(&reward_stream_idx.to_le_bytes());
+    restart_rewards_ixn_data.extend_from_slice(&reward_stream.open_time.to_le_bytes());
+    restart_rewards_ixn_data.extend_from_slice(&reward_stream.end_time.to_le_bytes());
+    restart_rewards_ixn_data.extend_from_slice(&reward_stream.emission_per_second_x64.to_le_bytes());
+
+    let farm_pda = derive_farm_pda(&staking_mint);
+    let farm_data = get_farm(svm,&farm_pda);
+
+    let farm_reward_stream = &farm_data.reward_streams[reward_stream_idx as usize];
+    let reward_vault_pda = get_associated_token_address_with_program_id(&farm_pda, &farm_reward_stream.reward_mint, &farm_reward_stream.reward_mint_program);
+
+    let creator_reward_token = get_associated_token_address_with_program_id(&creator.pubkey(), &farm_reward_stream.reward_mint, &farm_reward_stream.reward_mint_program);
+    let restart_rewards_ixn = vec![
+        AccountMeta::new_readonly(creator.pubkey(),true),
+        AccountMeta::new_readonly(*staking_mint, false),
+        AccountMeta::new(farm_pda,false),
+        AccountMeta::new_readonly(farm_reward_stream.reward_mint,false),
+        AccountMeta::new(reward_vault_pda,false),
+        AccountMeta::new(creator_reward_token,false),
+        AccountMeta::new_readonly(farm_reward_stream.reward_mint_program,false),
+    ];
+
+    let restart_rewards_ixn = Instruction {
+        program_id: RAYDIUM_PROGRAM_ID,
+        accounts: restart_rewards_ixn,
+        data: restart_rewards_ixn_data
+    };
+
+    let tx = Transaction::new_signed_with_payer(&[restart_rewards_ixn], Some(&creator.pubkey()), &[&creator], svm.latest_blockhash());
+
+    svm.send_transaction(tx)
+}

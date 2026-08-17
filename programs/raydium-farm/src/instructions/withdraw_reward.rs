@@ -43,6 +43,9 @@ pub struct WithdrawReward<'info> {
     pub reward_mint_program:Interface<'info,TokenInterface>,
 }
 
+// To be invoked only after the reward stream is ended and every staker have had a chance to harvest their latest rewards.
+// Do not call it early. or else harvest on behalf of all the stakers and then call withdraw.
+
 pub fn handle_withdraw_reward(ctx:Context<WithdrawReward>,reward_stream_idx:u8)-> Result<()> {
 
     let farm = &mut ctx.accounts.farm;

@@ -37,9 +37,6 @@ pub mod raydium_farm {
     pub fn restart_rewards(ctx:Context<RestartRewards>,reward_stream_idx:u8,reward_stream:RewardStreamArgs)->Result<()> {
         instructions::restart_rewards::handle_restart_rewards(ctx,reward_stream_idx,reward_stream)
     }
-
-    // Invoke only after the reward stream is ended and every staker have had a chance to harvest at the end time and after.
-    // Do not call it early. or else harvest on behalf of all the stakers and then withdraw the remaining.
     pub fn withdraw_reward(ctx:Context<WithdrawReward>,reward_stream_idx:u8)->Result<()> {
         instructions::withdraw_reward::handle_withdraw_reward(ctx,reward_stream_idx)
     }
